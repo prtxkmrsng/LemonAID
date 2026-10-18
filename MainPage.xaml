@@ -1,18 +1,245 @@
-<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="LemonAID.MainPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:local="using:LemonAID"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    AllowDrop="True"
+    DragOver="Page_DragOver"
+    Drop="Page_Drop"
+    KeyDown="Page_KeyDown"
+    IsTabStop="True">
 
-    <!--
-        This is the main content area of your application.
-        Add your UI elements here — for example, controls, layouts, and data-bound views.
-        Use 'dotnet new winui-page' to create additional pages and navigate to them via
-        the Frame in MainWindow (RootFrame).
-    -->
-    <Grid />
+    <Grid Background="#111215">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom Top Title Bar -->
+        <Grid Grid.Row="0" Padding="20,0" BorderBrush="#26272B" BorderThickness="0,0,0,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Ellipse Width="14" Height="14" Fill="#FACC15" />
+                <TextBlock Text="LemonAID" FontWeight="Bold" FontSize="15" Foreground="#FAFAFA" />
+                <Border Background="#2A2611" CornerRadius="6" Padding="8,2" VerticalAlignment="Center">
+                    <TextBlock Text="Local Radial File Utility" FontSize="11" Foreground="#FDE047" />
+                </Border>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <ToggleButton x:Name="PinToggleBtn" Content="📌 Pin Overlay" FontSize="12" Checked="PinToggleBtn_Changed" Unchecked="PinToggleBtn_Changed" />
+                <Button Content="🎓 Onboarding" FontSize="12" Click="OpenOnboarding_Click" />
+                <Button Content="⚙ Settings" FontSize="12" Click="OpenSettings_Click" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Main Split Workspace (Radial Lemon Wheel on Left, Contextual Controls on Right) -->
+        <Grid Grid.Row="1" Padding="36,24" ColumnSpacing="40">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="420" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT: Radial Wheel Container -->
+            <Grid Grid.Column="0" Width="380" Height="380" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <!-- Outer Citrus Ring Glow -->
+                <Ellipse Width="372" Height="372" Fill="#1B1C20" Stroke="#3A3519" StrokeThickness="2" />
+
+                <!-- Dynamic Wedge Canvas -->
+                <Canvas x:Name="WheelCanvas" Width="380" Height="380" />
+
+                <!-- Center Hub (Displays "2.4 MB" or active dragged file size) -->
+                <Border Width="118" Height="118" CornerRadius="59"
+                        Background="#141518" BorderBrush="#FACC15" BorderThickness="2"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        IsHitTestVisible="False">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2">
+                        <TextBlock x:Name="CenterSizeText" Text="2.4 MB"
+                                   FontSize="19" FontWeight="Bold" Foreground="#FAFAFA"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock x:Name="CenterCountText" Text="Drop files here"
+                                   FontSize="11" Foreground="#A1A1AA"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- RIGHT: Mode Switcher, Key Cues & Active File Queue -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="20">
+                <!-- Wheel Mode Selector Pills -->
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="ConverterTabBtn" Content="File Converter (Shift)" Click="ConverterTab_Click"
+                            CornerRadius="18" Padding="14,8" FontWeight="SemiBold" />
+                    <Button x:Name="ToolsTabBtn" Content="File Tools (Alt)" Click="ToolsTab_Click"
+                            CornerRadius="18" Padding="14,8" FontWeight="SemiBold" />
+                    <Button x:Name="ActionsTabBtn" Content="File Actions (Ctrl)" Click="ActionsTab_Click"
+                            CornerRadius="18" Padding="14,8" FontWeight="SemiBold" />
+                </StackPanel>
+
+                <!-- Active Mode Title & Keycap Instruction (Matches Tangerine Guide) -->
+                <StackPanel Spacing="10">
+                    <TextBlock x:Name="ModeTitleText" Text="File Converter"
+                               FontSize="34" FontWeight="Bold" Foreground="#FAFAFA" />
+                    <TextBlock x:Name="ModeSubtitleText"
+                               Text="Convert files locally into your chosen format. Results are saved next to the originals."
+                               FontSize="14" Foreground="#A1A1AA" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <!-- 1. Drag files / 2. Tap Keycap Card -->
+                <Border Background="#1A1B1F" BorderBrush="#27272A" BorderThickness="1" CornerRadius="14" Padding="20,16">
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                            <TextBlock Text="1. Drag files" FontSize="18" FontWeight="SemiBold" Foreground="#FAFAFA" VerticalAlignment="Center" />
+                            <Button Content="Browse Files..." Click="BrowseFiles_Click" FontSize="12" CornerRadius="8" />
+                            <Button Content="Load Sample Image" Click="CreateSampleFile_Click" FontSize="12" CornerRadius="8" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                            <TextBlock Text="2. Tap" FontSize="18" FontWeight="SemiBold" Foreground="#FAFAFA" VerticalAlignment="Center" />
+                            <Border Background="#27272A" BorderBrush="#3F3F46" BorderThickness="1" CornerRadius="8" Padding="14,6">
+                                <StackPanel>
+                                    <TextBlock x:Name="KeycapSymbolText" Text="⇧" FontSize="13" Foreground="#FACC15" HorizontalAlignment="Right" />
+                                    <TextBlock x:Name="KeycapLabelText" Text="shift" FontSize="12" FontWeight="SemiBold" Foreground="#FAFAFA" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="or use ←/→ &amp; Enter to run sector" FontSize="13" Foreground="#71717A" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Loaded Files & Hovered Sector Info -->
+                <Border Background="#18191C" CornerRadius="12" Padding="16,12" BorderBrush="#27272A" BorderThickness="1">
+                    <StackPanel Spacing="6">
+                        <TextBlock x:Name="SelectedFilesSummaryText"
+                                   Text="No files loaded yet — drop any file onto the window or click 'Load Sample Image'."
+                                   FontSize="13" Foreground="#E4E4E7" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="HoveredSectorDescriptionText"
+                                   Text="Hover or click a radial sector on the Lemon Wheel to execute."
+                                   FontSize="12" Foreground="#FACC15" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- Bottom Status Bar -->
+        <Border Grid.Row="2" Background="#16171A" BorderBrush="#26272B" BorderThickness="0,1,0,0" Padding="24,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusText"
+                           Text="Ready · 100% Local Offline Processing · Results saved next to originals"
+                           FontSize="12" Foreground="#A1A1AA" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" x:Name="OutputModeBadge"
+                           Text="Output: Beside Originals" FontSize="12" Foreground="#FACC15" />
+            </Grid>
+        </Border>
+
+        <!-- 6-STEP ONBOARDING OVERLAY (Matches Tangerine Onboarding Guide Figures 1-6) -->
+        <Grid x:Name="OnboardingOverlay" Grid.RowSpan="3" Background="#D909090B" Visibility="Visible">
+            <Border Width="680" Height="440" CornerRadius="48"
+                    BorderBrush="#3F3F46" BorderThickness="1"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Padding="44,36">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#F59E0B" Offset="0.0" />
+                        <GradientStop Color="#FACC15" Offset="0.55" />
+                        <GradientStop Color="#FEF08A" Offset="1.0" />
+                    </LinearGradientBrush>
+                </Border.Background>
+
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Top Back Button -->
+                    <Button x:Name="OnboardingBackBtn" Content="← Back"
+                            Click="OnboardingBack_Click"
+                            Background="#33000000" Foreground="#18181B"
+                            CornerRadius="14" HorizontalAlignment="Left" />
+
+                    <!-- Center Onboarding Step Content -->
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14" MaxWidth="540">
+                        <TextBlock x:Name="OnboardingStepTag" Text="Welcome to"
+                                   FontSize="22" FontWeight="SemiBold" Foreground="#27272A"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock x:Name="OnboardingStepTitle" Text="LemonAID"
+                                   FontSize="54" FontWeight="Bold" Foreground="#09090B"
+                                   HorizontalAlignment="Center" TextAlignment="Center" />
+                        <TextBlock x:Name="OnboardingStepBody"
+                                   Text="Zero-click contextual radial menus for instant offline file conversion, editing tools, and file actions."
+                                   FontSize="16" Foreground="#18181B"
+                                   HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+
+                        <!-- Optional Step-Specific Interactive Controls (Folder Access / Launch at Login) -->
+                        <StackPanel x:Name="OnboardingExtraPanel" Orientation="Horizontal" Spacing="12"
+                                    HorizontalAlignment="Center" Visibility="Collapsed" Margin="0,8,0,0">
+                            <Button x:Name="OnboardingFolderBtn" Content="Allow Custom Folder Access..."
+                                    Click="SelectCustomFolder_Click"
+                                    Background="#18181B" Foreground="#FAFAFA" CornerRadius="16" Padding="16,8" />
+                            <ToggleSwitch x:Name="LaunchAtLoginToggle" Header="Launch at login"
+                                          IsOn="True" Foreground="#09090B" Visibility="Collapsed" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Bottom Continue Button + 6 Progress Dots -->
+                    <StackPanel Grid.Row="2" Spacing="16" HorizontalAlignment="Center">
+                        <Button x:Name="OnboardingNextBtn" Content="Continue"
+                                Click="OnboardingNext_Click"
+                                Background="#FFFFFF" Foreground="#09090B"
+                                FontWeight="Bold" FontSize="15"
+                                CornerRadius="22" Padding="36,12" HorizontalAlignment="Center" />
+
+                        <StackPanel x:Name="ProgressDotsPanel" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- SETTINGS OVERLAY -->
+        <Grid x:Name="SettingsOverlay" Grid.RowSpan="3" Background="#CC09090B" Visibility="Collapsed">
+            <Border Width="520" CornerRadius="20" Background="#18191C" BorderBrush="#27272A" BorderThickness="1"
+                    Padding="28" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="18">
+                    <TextBlock Text="LemonAID Settings" FontSize="22" FontWeight="Bold" Foreground="#FAFAFA" />
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Folders &amp; Output Location" FontWeight="SemiBold" Foreground="#FACC15" />
+                        <TextBlock x:Name="SettingsFolderStatusText"
+                                   Text="Default: Results are saved next to the originals."
+                                   FontSize="12" Foreground="#A1A1AA" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
+                            <Button Content="Choose Custom Output Folder..." Click="SelectCustomFolder_Click" />
+                            <Button Content="Reset to Beside Originals" Click="ResetOutputFolder_Click" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Modifier Key Shortcuts" FontWeight="SemiBold" Foreground="#FACC15" />
+                        <TextBlock Text="• Shift: File Converter Wheel (PDF, PNG, WEBP, HEIC, TIFF, AVIF)&#x0a;• Alt: File Tools Wheel (Compress, Metadata, Edit, Annotate, Add BG, Crop, Redact)&#x0a;• Ctrl: File Actions Wheel (Nearby Share, Float, Copy, Move, Copy Path, Terminal)"
+                                   FontSize="12" Foreground="#D4D4D8" LineHeight="20" />
+                    </StackPanel>
+
+                    <ToggleSwitch x:Name="SettingsLaunchToggle" Header="Launch LemonAID at Windows sign-in" IsOn="True" />
+
+                    <Button Content="Done" HorizontalAlignment="Right" Click="CloseSettings_Click"
+                            Background="#FACC15" Foreground="#09090B" FontWeight="Bold" Padding="24,8" CornerRadius="12" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
 </Page>
