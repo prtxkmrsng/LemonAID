@@ -24,6 +24,10 @@ namespace LemonAID;
 
 public sealed partial class MainPage : Page
 {
+    public static IReadOnlyList<string> CurrentLoadedFiles => _sharedLoadedFiles;
+    public static string? CurrentCustomOutputFolder { get; private set; }
+    private static readonly List<string> _sharedLoadedFiles = [];
+
     private WheelMode _currentMode = WheelMode.Converter;
     private readonly List<string> _loadedFiles = [];
     private IReadOnlyList<SectorItem> _currentSectors = [];
@@ -34,6 +38,15 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
+
+        if (MainWindow.CurrentInstance != null)
+        {
+            MainWindow.CurrentInstance.GlobalOverlayStatusReceived += msg =>
+            {
+                StatusText.Text = msg;
+            };
+        }
+
         Loaded += (_, _) =>
         {
             UpdateOnboardingUI();
@@ -305,6 +318,9 @@ public sealed partial class MainPage : Page
 
     private void UpdateLoadedFilesSummary()
     {
+        _sharedLoadedFiles.Clear();
+        _sharedLoadedFiles.AddRange(_loadedFiles);
+
         if (_loadedFiles.Count == 0)
         {
             SelectedFilesSummaryText.Text = "No files loaded yet — drop any file onto the window or click 'Load Sample Image'.";
@@ -537,7 +553,7 @@ public sealed partial class MainPage : Page
         StorageFolder? folder = await picker.PickSingleFolderAsync();
         if (folder != null)
         {
-            _customOutputFolder = folder.Path;
+            CurrentCustomOutputFolder = _customOutputFolder = folder.Path;
             OutputModeBadge.Text = $"Output: {folder.Name}";
             SettingsFolderStatusText.Text = $"Saving results to: {_customOutputFolder}";
             StatusText.Text = $"Updated output folder to {_customOutputFolder}";
@@ -546,7 +562,7 @@ public sealed partial class MainPage : Page
 
     private void ResetOutputFolder_Click(object sender, RoutedEventArgs e)
     {
-        _customOutputFolder = null;
+        CurrentCustomOutputFolder = _customOutputFolder = null;
         OutputModeBadge.Text = "Output: Beside Originals";
         SettingsFolderStatusText.Text = "Default: Results are saved next to the originals.";
         StatusText.Text = "Output location reset to save beside original files.";

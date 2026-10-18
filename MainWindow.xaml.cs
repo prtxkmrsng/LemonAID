@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using LemonAID.Services;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -13,10 +16,17 @@ public sealed partial class MainWindow : Window
 {
     public static MainWindow? CurrentInstance { get; private set; }
 
+    public GlobalInputHookService HookService { get; } = new();
+    private RadialOverlayWindow? _overlayWindow;
+    private readonly DispatcherQueue _dispatcherQueue;
+
+    public event Action<string>? GlobalOverlayStatusReceived;
+
     public MainWindow()
     {
         InitializeComponent();
         CurrentInstance = this;
+        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
         ExtendsContentIntoTitleBar = true;
         AppWindow.Resize(new SizeInt32(960, 640));
@@ -27,7 +37,75 @@ public sealed partial class MainWindow : Window
             presenter.IsMinimizable = true;
         }
 
+        SetupGlobalHookEvents();
+        HookService.Start();
+
+        Closed += (_, _) =>
+        {
+            HookService.Dispose();
+            _overlayWindow?.Close();
+        };
+
         RootFrame.Navigate(typeof(MainPage));
+    }
+
+    private void SetupGlobalHookEvents()
+    {
+        HookService.OverlaySummoned += (screenX, screenY, mode, sourceHwnd) =>
+        {
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                if (_overlayWindow == null)
+                {
+                    _overlayWindow = new RadialOverlayWindow();
+                    _overlayWindow.OperationCompleted += msg =>
+                    {
+                        HookService.IsOverlayVisible = false;
+                        GlobalOverlayStatusReceived?.Invoke(msg);
+                    };
+                }
+
+                List<string> paths = GlobalInputHookService.TryGetSelectedPathsFromExplorer(sourceHwnd);
+                if (paths.Count == 0 && MainPage.CurrentLoadedFiles.Count > 0)
+                {
+                    paths.AddRange(MainPage.CurrentLoadedFiles);
+                }
+
+                HookService.IsOverlayVisible = true;
+                _overlayWindow.SummonAtCursor(screenX, screenY, mode, paths);
+            });
+        };
+
+        HookService.ModeChangeRequested += mode =>
+        {
+            _dispatcherQueue.TryEnqueue(() => _overlayWindow?.SwitchMode(mode));
+        };
+
+        HookService.CursorMovedWhileActive += (screenX, screenY) =>
+        {
+            _dispatcherQueue.TryEnqueue(() => _overlayWindow?.UpdateCursorScreenPosition(screenX, screenY));
+        };
+
+        HookService.LeftButtonReleasedWhileActive += (screenX, screenY) =>
+        {
+            _dispatcherQueue.TryEnqueue(async () =>
+            {
+                if (_overlayWindow != null)
+                {
+                    HookService.IsOverlayVisible = false;
+                    await _overlayWindow.CompleteOnMouseReleaseAsync(screenX, screenY, MainPage.CurrentCustomOutputFolder);
+                }
+            });
+        };
+
+        HookService.DismissRequested += () =>
+        {
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                HookService.IsOverlayVisible = false;
+                _overlayWindow?.DismissOverlay();
+            });
+        };
     }
 
     public void SetAlwaysOnTop(bool pin)
@@ -67,7 +145,7 @@ public sealed partial class MainWindow : Window
 
         var header = new TextBlock
         {
-            Text = $"📌 {Path.GetFileName(filePath)}",
+            Text = $"📌 {Path.GetFileName(filePath.TrimEnd(Path.DirectorySeparatorChar))}",
             Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 250, 204, 21)),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Margin = new Thickness(0, 8, 0, 12)
@@ -76,7 +154,7 @@ public sealed partial class MainWindow : Window
         root.Children.Add(header);
 
         string ext = Path.GetExtension(filePath).ToLowerInvariant();
-        if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".webp")
+        if (File.Exists(filePath) && ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".webp")
         {
             var img = new Image
             {
@@ -90,7 +168,7 @@ public sealed partial class MainWindow : Window
         {
             var infoText = new TextBlock
             {
-                Text = $"Path:\n{filePath}\n\nSize: {(File.Exists(filePath) ? new FileInfo(filePath).Length : 0):N0} bytes",
+                Text = $"Path:\n{filePath}",
                 Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(220, 255, 255, 255)),
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center
