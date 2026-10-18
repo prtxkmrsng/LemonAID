@@ -24,6 +24,7 @@ public sealed partial class RadialOverlayWindow : Window
     private WheelMode _currentMode = WheelMode.Converter;
     private readonly List<string> _activePaths = [];
     private IReadOnlyList<SectorItem> _sectors = [];
+    private readonly List<WedgeVisualNode> _wedgeNodes = [];
     private int _selectedSectorIndex = -1;
     private int _centerScreenX;
     private int _centerScreenY;
@@ -38,7 +39,7 @@ public sealed partial class RadialOverlayWindow : Window
         _hwnd = WindowNative.GetWindowHandle(this);
 
         ThemeService.ApplyBackdropToWindow(this, isTransientOverlay: true);
-        ThemeService.PaletteChanged += _ => RenderWedges();
+        ThemeService.PaletteChanged += _ => RebuildWedgeVisuals();
 
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -76,18 +77,31 @@ public sealed partial class RadialOverlayWindow : Window
         IntPtr hRgn = CreateEllipticRgn(0, 0, physDiameter, physDiameter);
         SetWindowRgn(_hwnd, hRgn, true);
 
-        SwitchMode(mode);
+        SwitchModeInternal(mode, playModeFeedback: false);
         AppWindow.Show(true);
+
+        FeedbackService.Play(FeedbackCue.WheelSummon);
+        WheelAnimationHelper.AnimateWheelSummon(RootGrid, RootWheelTransform, CenterHubTransform);
     }
 
-    public void DismissOverlay()
+    public void DismissOverlay(bool playSound = true)
     {
+        if (!_isExecutingOrHidden && playSound)
+        {
+            FeedbackService.Play(FeedbackCue.Dismiss);
+        }
+
         _isExecutingOrHidden = true;
         _selectedSectorIndex = -1;
         AppWindow.Hide();
     }
 
     public void SwitchMode(WheelMode mode)
+    {
+        SwitchModeInternal(mode, playModeFeedback: true);
+    }
+
+    private void SwitchModeInternal(WheelMode mode, bool playModeFeedback)
     {
         _currentMode = mode;
         _sectors = FileProcessorService.GetSectorsForMode(mode, _activePaths);
@@ -106,7 +120,13 @@ public sealed partial class RadialOverlayWindow : Window
             ? System.IO.Path.GetFileName(_activePaths[0].TrimEnd(System.IO.Path.DirectorySeparatorChar))
             : "Drop / Release";
 
-        RenderWedges();
+        RebuildWedgeVisuals();
+
+        if (playModeFeedback)
+        {
+            FeedbackService.Play(FeedbackCue.ModeSwitch);
+            WheelAnimationHelper.AnimateModeSwitch(RootWheelTransform, CenterHubTransform);
+        }
     }
 
     public void UpdateCursorScreenPosition(int screenX, int screenY)
@@ -127,7 +147,8 @@ public sealed partial class RadialOverlayWindow : Window
         if (_selectedSectorIndex >= 0 && _selectedSectorIndex < _sectors.Count && _activePaths.Count > 0)
         {
             var chosen = _sectors[_selectedSectorIndex];
-            DismissOverlay();
+            FeedbackService.Play(FeedbackCue.ExecuteSuccess);
+            DismissOverlay(playSound: false);
 
             string status = await FileProcessorService.ExecuteSectorAsync(
                 _currentMode,
@@ -140,7 +161,7 @@ public sealed partial class RadialOverlayWindow : Window
         }
         else if (_activePaths.Count > 0)
         {
-            DismissOverlay();
+            DismissOverlay(playSound: true);
         }
     }
 
@@ -151,11 +172,17 @@ public sealed partial class RadialOverlayWindow : Window
         {
             if (_selectedSectorIndex != -1)
             {
+                int prev = _selectedSectorIndex;
                 _selectedSectorIndex = -1;
                 OverlayTargetText.Text = _activePaths.Count > 0
                     ? System.IO.Path.GetFileName(_activePaths[0].TrimEnd(System.IO.Path.DirectorySeparatorChar))
                     : "Release to cancel";
-                RenderWedges();
+
+                var palette = ThemeService.GetCurrentPalette();
+                if (prev >= 0 && prev < _wedgeNodes.Count)
+                {
+                    WheelAnimationHelper.UpdateWedgeSelection(_wedgeNodes[prev], false, palette);
+                }
             }
             return;
         }
@@ -167,13 +194,25 @@ public sealed partial class RadialOverlayWindow : Window
 
         if (idx >= 0 && idx < _sectors.Count && idx != _selectedSectorIndex)
         {
+            int previousIdx = _selectedSectorIndex;
             _selectedSectorIndex = idx;
             OverlayTargetText.Text = _sectors[idx].Label;
-            RenderWedges();
+
+            var palette = ThemeService.GetCurrentPalette();
+            if (previousIdx >= 0 && previousIdx < _wedgeNodes.Count)
+            {
+                WheelAnimationHelper.UpdateWedgeSelection(_wedgeNodes[previousIdx], false, palette);
+            }
+            if (idx < _wedgeNodes.Count)
+            {
+                WheelAnimationHelper.UpdateWedgeSelection(_wedgeNodes[idx], true, palette);
+            }
+
+            FeedbackService.Play(FeedbackCue.WedgeTick);
         }
     }
 
-    private void RenderWedges()
+    private void RebuildWedgeVisuals()
     {
         var palette = ThemeService.GetCurrentPalette();
 
@@ -188,13 +227,15 @@ public sealed partial class RadialOverlayWindow : Window
         OverlayTargetText.Foreground = new SolidColorBrush(palette.TextSecondary);
 
         OverlayWheelCanvas.Children.Clear();
+        _wedgeNodes.Clear();
+
         int count = _sectors.Count;
         if (count == 0) return;
 
         const double cx = 190.0;
         const double cy = 190.0;
         const double rIn = 64.0;
-        const double rOut = 180.0;
+        const double rOut = 172.0;
         const double gapDeg = 4.0;
 
         double sweep = 360.0 / count;
@@ -208,8 +249,12 @@ public sealed partial class RadialOverlayWindow : Window
 
             double a0 = startOffset + i * sweep + (gapDeg / 2.0);
             double a1 = startOffset + (i + 1) * sweep - (gapDeg / 2.0);
+            double midRad = ((a0 + a1) / 2.0) * Math.PI / 180.0;
 
+            var wedgeTransform = new CompositeTransform { CenterX = cx, CenterY = cy };
             var path = BuildWedgePath(cx, cy, rIn, rOut, a0, a1, isSelected, palette);
+            path.RenderTransform = wedgeTransform;
+
             path.PointerPressed += async (_, _) =>
             {
                 _selectedSectorIndex = idx;
@@ -217,27 +262,28 @@ public sealed partial class RadialOverlayWindow : Window
             };
             OverlayWheelCanvas.Children.Add(path);
 
-            double midRad = ((a0 + a1) / 2.0) * Math.PI / 180.0;
             double midR = (rIn + rOut) / 2.0;
             double lx = cx + midR * Math.Cos(midRad);
             double ly = cy + midR * Math.Sin(midRad);
 
+            var labelTransform = new CompositeTransform { CenterX = 40, CenterY = 18 };
             var stack = new StackPanel
             {
                 Width = 80,
                 Spacing = 2,
-                IsHitTestVisible = false
+                IsHitTestVisible = false,
+                RenderTransform = labelTransform
             };
 
-            stack.Children.Add(new FontIcon
+            var icon = new FontIcon
             {
                 Glyph = sector.Glyph,
                 FontSize = 15,
                 Foreground = new SolidColorBrush(isSelected ? palette.TextOnAccent : palette.Accent),
                 HorizontalAlignment = HorizontalAlignment.Center
-            });
+            };
 
-            stack.Children.Add(new TextBlock
+            var label = new TextBlock
             {
                 Text = sector.Label,
                 FontSize = 11,
@@ -245,11 +291,31 @@ public sealed partial class RadialOverlayWindow : Window
                 Foreground = new SolidColorBrush(isSelected ? palette.TextOnAccent : palette.TextPrimary),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextAlignment = TextAlignment.Center
-            });
+            };
+
+            stack.Children.Add(icon);
+            stack.Children.Add(label);
 
             Canvas.SetLeft(stack, lx - 40);
             Canvas.SetTop(stack, ly - 18);
             OverlayWheelCanvas.Children.Add(stack);
+
+            var node = new WedgeVisualNode
+            {
+                WedgePath = path,
+                LabelStack = stack,
+                Icon = icon,
+                Label = label,
+                WedgeTransform = wedgeTransform,
+                LabelTransform = labelTransform,
+                MidAngleRadians = midRad
+            };
+            _wedgeNodes.Add(node);
+
+            if (isSelected)
+            {
+                WheelAnimationHelper.UpdateWedgeSelection(node, true, palette);
+            }
         }
     }
 
@@ -324,7 +390,8 @@ public sealed partial class RadialOverlayWindow : Window
         if (_selectedSectorIndex >= 0 && _selectedSectorIndex < _sectors.Count && _activePaths.Count > 0)
         {
             var chosen = _sectors[_selectedSectorIndex];
-            DismissOverlay();
+            FeedbackService.Play(FeedbackCue.ExecuteSuccess);
+            DismissOverlay(playSound: false);
 
             string status = await FileProcessorService.ExecuteSectorAsync(
                 _currentMode,
@@ -337,7 +404,7 @@ public sealed partial class RadialOverlayWindow : Window
         }
         else
         {
-            DismissOverlay();
+            DismissOverlay(playSound: true);
         }
     }
 

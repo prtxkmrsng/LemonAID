@@ -12,13 +12,18 @@
     <Grid x:Name="RootGrid"
           Width="380" Height="380"
           Background="Transparent"
+          RenderTransformOrigin="0.5,0.5"
           AllowDrop="True"
           DragOver="RootGrid_DragOver"
           Drop="RootGrid_Drop">
 
+        <Grid.RenderTransform>
+            <CompositeTransform x:Name="RootWheelTransform" />
+        </Grid.RenderTransform>
+
         <!-- Outer Translucent Ring with Dynamic Accent Border -->
         <Ellipse x:Name="OuterRingEllipse"
-                 Width="376" Height="376"
+                 Width="366" Height="366"
                  StrokeThickness="2.5"
                  HorizontalAlignment="Center"
                  VerticalAlignment="Center" />
@@ -30,8 +35,12 @@
         <Border x:Name="CenterHubBorder"
                 Width="122" Height="122" CornerRadius="61"
                 BorderThickness="2"
+                RenderTransformOrigin="0.5,0.5"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
                 IsHitTestVisible="False">
+            <Border.RenderTransform>
+                <CompositeTransform x:Name="CenterHubTransform" />
+            </Border.RenderTransform>
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2" Padding="8">
                 <TextBlock x:Name="OverlayModeBadge" Text="SHIFT · CONVERT"
                            FontSize="9" FontWeight="Bold"

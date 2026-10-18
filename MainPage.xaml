@@ -13,7 +13,6 @@
     KeyDown="Page_KeyDown"
     IsTabStop="True">
 
-    <!-- Root Grid is Transparent so Mica Alt / Acrylic shines through -->
     <Grid Background="Transparent">
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
@@ -38,7 +37,6 @@
                 </Border>
             </StackPanel>
 
-            <!-- Right-aligned controls padded away from Windows min/max/close caption buttons -->
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,138,0">
                 <ToggleButton x:Name="PinToggleBtn" Content="📌 Pin" FontSize="12" Checked="PinToggleBtn_Changed" Unchecked="PinToggleBtn_Changed" />
                 <Button Content="⬇ Hide to Tray" FontSize="12" Click="HideToTray_Click" />
@@ -54,19 +52,26 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- LEFT: Radial Wheel Container -->
-            <Grid Grid.Column="0" Width="380" Height="380" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <!-- Outer Translucent Ring -->
-                <Ellipse x:Name="MainWheelOuterEllipse" Width="372" Height="372" StrokeThickness="2" />
+            <!-- LEFT: Animated Radial Wheel Container -->
+            <Grid x:Name="MainWheelContainer"
+                  Grid.Column="0" Width="380" Height="380"
+                  RenderTransformOrigin="0.5,0.5"
+                  HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Grid.RenderTransform>
+                    <CompositeTransform x:Name="MainWheelTransform" />
+                </Grid.RenderTransform>
 
-                <!-- Dynamic Wedge Canvas -->
+                <Ellipse x:Name="MainWheelOuterEllipse" Width="368" Height="368" StrokeThickness="2" />
                 <Canvas x:Name="WheelCanvas" Width="380" Height="380" />
 
-                <!-- Center Hub -->
                 <Border x:Name="MainWheelCenterBorder" Width="118" Height="118" CornerRadius="59"
                         BorderThickness="2"
+                        RenderTransformOrigin="0.5,0.5"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
                         IsHitTestVisible="False">
+                    <Border.RenderTransform>
+                        <CompositeTransform x:Name="MainCenterHubTransform" />
+                    </Border.RenderTransform>
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2">
                         <TextBlock x:Name="CenterSizeText" Text="2.4 MB"
                                    FontSize="19" FontWeight="Bold"
@@ -80,7 +85,6 @@
 
             <!-- RIGHT: Mode Switcher, Key Cues & Active File Queue -->
             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="20">
-                <!-- Wheel Mode Selector Pills -->
                 <StackPanel Orientation="Horizontal" Spacing="10">
                     <Button x:Name="ConverterTabBtn" Content="File Converter (Shift)" Click="ConverterTab_Click"
                             CornerRadius="18" Padding="14,8" FontWeight="SemiBold" />
@@ -90,7 +94,6 @@
                             CornerRadius="18" Padding="14,8" FontWeight="SemiBold" />
                 </StackPanel>
 
-                <!-- Active Mode Title & Subtitle -->
                 <StackPanel Spacing="8">
                     <TextBlock x:Name="ModeTitleText" Text="File Converter"
                                FontSize="34" FontWeight="Bold" />
@@ -99,7 +102,6 @@
                                FontSize="14" TextWrapping="Wrap" />
                 </StackPanel>
 
-                <!-- 1. Drag files / 2. Tap Keycap Card (Translucent Acrylic/Mica Layer) -->
                 <Border x:Name="InstructionCardBorder" BorderThickness="1" CornerRadius="14" Padding="20,16">
                     <StackPanel Spacing="12">
                         <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
@@ -121,7 +123,6 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Loaded Files & Hovered Sector Info -->
                 <Border x:Name="SummaryCardBorder" CornerRadius="12" Padding="16,12" BorderThickness="1">
                     <StackPanel Spacing="6">
                         <TextBlock x:Name="SelectedFilesSummaryText"
@@ -145,14 +146,14 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusText"
-                           Text="Ready · Global Hook Active (Hold Left-Click + Shift) · Results saved beside originals"
+                           Text="Ready · Spring Animations &amp; Sound/Haptic Feedback Active · Results saved beside originals"
                            FontSize="12" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" x:Name="OutputModeBadge"
                            Text="Output: Beside Originals" FontSize="12" FontWeight="SemiBold" />
             </Grid>
         </Border>
 
-        <!-- 6-STEP ONBOARDING OVERLAY (Dynamic System Accent Gradient + Acrylic Backdrop) -->
+        <!-- 6-STEP ONBOARDING OVERLAY -->
         <Grid x:Name="OnboardingOverlay" Grid.RowSpan="3" Background="#B3000000" Visibility="Visible">
             <Border x:Name="OnboardingCardBorder" Width="680" Height="440" CornerRadius="48"
                     BorderThickness="1.5"
@@ -165,12 +166,10 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Top Back Button -->
                     <Button x:Name="OnboardingBackBtn" Content="← Back"
                             Click="OnboardingBack_Click"
                             CornerRadius="14" HorizontalAlignment="Left" />
 
-                    <!-- Center Onboarding Step Content -->
                     <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14" MaxWidth="540">
                         <TextBlock x:Name="OnboardingStepTag" Text="Welcome to"
                                    FontSize="22" FontWeight="SemiBold"
@@ -188,12 +187,11 @@
                             <Button x:Name="OnboardingFolderBtn" Content="Allow Custom Folder Access..."
                                     Click="SelectCustomFolder_Click"
                                     CornerRadius="16" Padding="16,8" />
-                            <ToggleSwitch x:Name="LaunchAtLoginToggle" Header="Launch at login"
+                            <ToggleSwitch x:Name="LaunchAtLoginToggle" Header="Launch headless at login"
                                           IsOn="True" Visibility="Collapsed" />
                         </StackPanel>
                     </StackPanel>
 
-                    <!-- Bottom Continue Button + 6 Progress Dots -->
                     <StackPanel Grid.Row="2" Spacing="16" HorizontalAlignment="Center">
                         <Button x:Name="OnboardingNextBtn" Content="Continue"
                                 Click="OnboardingNext_Click"
@@ -206,75 +204,84 @@
             </Border>
         </Grid>
 
-        <!-- SETTINGS OVERLAY (Mica Alt / Acrylic & Dynamic Theme Controls) -->
+        <!-- SETTINGS OVERLAY -->
         <Grid x:Name="SettingsOverlay" Grid.RowSpan="3" Background="#B3000000" Visibility="Collapsed">
-            <Border x:Name="SettingsCardBorder" Width="540" CornerRadius="20" BorderThickness="1.5"
-                    Padding="28" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <StackPanel Spacing="18">
-                    <TextBlock x:Name="SettingsHeaderTitle" Text="LemonAID Settings" FontSize="22" FontWeight="Bold" />
+            <Border x:Name="SettingsCardBorder" Width="600" CornerRadius="20" BorderThickness="1.5"
+                    Padding="28,24" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <ScrollViewer MaxHeight="540" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="14">
+                        <TextBlock x:Name="SettingsHeaderTitle" Text="LemonAID Settings" FontSize="22" FontWeight="Bold" />
 
-                    <!-- Backdrop & Dynamic Theme Selector -->
-                    <StackPanel Spacing="8">
-                        <TextBlock x:Name="SettingsAppearanceLabel" Text="Window Material &amp; Dynamic Color Theme" FontWeight="SemiBold" />
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <ComboBox x:Name="BackdropComboBox" Header="Backdrop Material" SelectedIndex="0" Width="220"
-                                      SelectionChanged="BackdropComboBox_SelectionChanged">
-                                <ComboBoxItem Content="Mica Alt (BaseAlt)" />
-                                <ComboBoxItem Content="Desktop Acrylic (Translucent)" />
-                            </ComboBox>
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="SettingsAppearanceLabel" Text="Window Material &amp; Dynamic Color Theme" FontWeight="SemiBold" />
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <ComboBox x:Name="BackdropComboBox" Header="Backdrop Material" SelectedIndex="0" Width="250"
+                                          SelectionChanged="BackdropComboBox_SelectionChanged">
+                                    <ComboBoxItem Content="Mica Alt (BaseAlt)" />
+                                    <ComboBoxItem Content="Desktop Acrylic (Translucent)" />
+                                </ComboBox>
 
-                            <ComboBox x:Name="ThemeModeComboBox" Header="Color Mode" SelectedIndex="0" Width="220"
-                                      SelectionChanged="ThemeModeComboBox_SelectionChanged">
-                                <ComboBoxItem Content="Windows Dynamic (Auto)" />
-                                <ComboBoxItem Content="Dark Mode" />
-                                <ComboBoxItem Content="Light Mode" />
-                            </ComboBox>
+                                <ComboBox x:Name="ThemeModeComboBox" Header="Color Mode" SelectedIndex="0" Width="250"
+                                          SelectionChanged="ThemeModeComboBox_SelectionChanged">
+                                    <ComboBoxItem Content="Windows Dynamic (Auto)" />
+                                    <ComboBoxItem Content="Dark Mode" />
+                                    <ComboBoxItem Content="Light Mode" />
+                                </ComboBox>
+                            </StackPanel>
                         </StackPanel>
-                    </StackPanel>
 
-                    <StackPanel Spacing="6">
-                        <TextBlock x:Name="SettingsFolderLabel" Text="Folders &amp; Output Location" FontWeight="SemiBold" />
-                        <TextBlock x:Name="SettingsFolderStatusText"
-                                   Text="Default: Results are saved next to the originals."
-                                   FontSize="12" TextWrapping="Wrap" />
-                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
-                            <Button Content="Choose Custom Output Folder..." Click="SelectCustomFolder_Click" />
-                            <Button Content="Reset to Beside Originals" Click="ResetOutputFolder_Click" />
+                        <StackPanel Spacing="4">
+                            <TextBlock x:Name="SettingsFeedbackLabel" Text="Animations, Sound &amp; Haptic Feedback" FontWeight="SemiBold" />
+                            <StackPanel Orientation="Horizontal" Spacing="18">
+                                <ToggleSwitch x:Name="SettingsAnimationsToggle"
+                                              Header="Spring animations"
+                                              IsOn="True" Toggled="BackgroundToggles_Changed" />
+                                <ToggleSwitch x:Name="SettingsSoundToggle"
+                                              Header="Tactile sound effects"
+                                              IsOn="True" Toggled="BackgroundToggles_Changed" />
+                                <ToggleSwitch x:Name="SettingsHapticsToggle"
+                                              Header="Haptic feedback"
+                                              IsOn="True" Toggled="BackgroundToggles_Changed" />
+                            </StackPanel>
                         </StackPanel>
-                    </StackPanel>
 
-                    <StackPanel Spacing="6">
-                        <TextBlock x:Name="SettingsShortcutsLabel" Text="Modifier Key Shortcuts" FontWeight="SemiBold" />
-                        <TextBlock x:Name="SettingsShortcutsBody"
-                                   Text="• Shift: File Converter Wheel (PDF, PNG, WEBP, HEIC, TIFF, AVIF)&#x0a;• Alt: File Tools Wheel (Compress, Metadata, Edit, Annotate, Add BG, Crop, Redact)&#x0a;• Ctrl: File Actions Wheel (Nearby Share, Float, Copy, Move, Copy Path, Terminal)"
-                                   FontSize="12" LineHeight="20" />
-                    </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock x:Name="SettingsFolderLabel" Text="Folders &amp; Output Location" FontWeight="SemiBold" />
+                            <TextBlock x:Name="SettingsFolderStatusText"
+                                       Text="Default: Results are saved next to the originals."
+                                       FontSize="12" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
+                                <Button Content="Choose Custom Output Folder..." Click="SelectCustomFolder_Click" />
+                                <Button Content="Reset to Beside Originals" Click="ResetOutputFolder_Click" />
+                            </StackPanel>
+                        </StackPanel>
 
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="PowerToys Background &amp; Headless Mode" FontWeight="SemiBold" Foreground="{ThemeResource SystemAccentColorLight1}" />
-                        <ToggleSwitch x:Name="SettingsCloseToTrayToggle"
-                                      Header="Keep running in System Tray when closing window"
-                                      IsOn="True" Toggled="BackgroundToggles_Changed" />
-                        <ToggleSwitch x:Name="SettingsStartHeadlessToggle"
-                                      Header="Start silently in headless background mode"
-                                      IsOn="False" Toggled="BackgroundToggles_Changed" />
-                        <ToggleSwitch x:Name="SettingsLaunchToggle"
-                                      Header="Launch LemonAID at Windows sign-in (--headless)"
-                                      IsOn="True" Toggled="BackgroundToggles_Changed" />
-                    </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock x:Name="SettingsShortcutsLabel" Text="PowerToys Background &amp; Headless Mode" FontWeight="SemiBold" />
+                            <ToggleSwitch x:Name="SettingsCloseToTrayToggle"
+                                          Header="Keep running in System Tray when closing window"
+                                          IsOn="True" Toggled="BackgroundToggles_Changed" />
+                            <ToggleSwitch x:Name="SettingsStartHeadlessToggle"
+                                          Header="Start silently in headless background mode"
+                                          IsOn="False" Toggled="BackgroundToggles_Changed" />
+                            <ToggleSwitch x:Name="SettingsLaunchToggle"
+                                          Header="Launch LemonAID at Windows sign-in (--headless)"
+                                          IsOn="True" Toggled="BackgroundToggles_Changed" />
+                        </StackPanel>
 
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Content="⏻ Quit Background Process" Click="QuitProcess_Click"
-                                CornerRadius="12" Padding="16,8" />
-                        <Button Grid.Column="2" x:Name="SettingsDoneBtn" Content="Done" Click="CloseSettings_Click"
-                                FontWeight="Bold" Padding="24,8" CornerRadius="12" />
-                    </Grid>
-                </StackPanel>
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" Content="⏻ Quit Background Process" Click="QuitProcess_Click"
+                                    CornerRadius="12" Padding="14,8" />
+                            <Button Grid.Column="2" x:Name="SettingsDoneBtn" Content="Done" Click="CloseSettings_Click"
+                                    FontWeight="Bold" Padding="24,8" CornerRadius="12" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
             </Border>
         </Grid>
     </Grid>

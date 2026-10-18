@@ -11,7 +11,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.ApplicationModel.DataTransfer.DragDrop;
 using Windows.Foundation;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
@@ -30,6 +29,7 @@ public sealed partial class MainPage : Page
     private WheelMode _currentMode = WheelMode.Converter;
     private readonly List<string> _loadedFiles = [];
     private IReadOnlyList<SectorItem> _currentSectors = [];
+    private readonly List<WedgeVisualNode> _wedgeNodes = [];
     private int _selectedSectorIndex = -1;
     private string? _customOutputFolder;
     private int _onboardingStep = 0;
@@ -60,11 +60,59 @@ public sealed partial class MainPage : Page
             OnboardingOverlay.Visibility = BackgroundSettingsService.Current.OnboardingCompleted
                 ? Visibility.Collapsed
                 : Visibility.Visible;
+
+            if (!string.IsNullOrWhiteSpace(_customOutputFolder))
+            {
+                OutputModeBadge.Text = $"Output: {System.IO.Path.GetFileName(_customOutputFolder)}";
+                SettingsFolderStatusText.Text = $"Saving results to: {_customOutputFolder}";
+            }
+
             ApplyDynamicPalette();
             UpdateOnboardingUI();
-            SwitchMode(WheelMode.Converter);
+            SwitchMode(WheelMode.Converter, animateAndSound: false);
+            WheelAnimationHelper.AnimateWheelSummon(MainWheelContainer, MainWheelTransform, MainCenterHubTransform);
             Focus(FocusState.Programmatic);
         };
+    }
+
+    private void SyncSettingsUIFromService()
+    {
+        _isSyncingSettings = true;
+        var s = BackgroundSettingsService.Current;
+        SettingsAnimationsToggle.IsOn = s.AnimationsEnabled;
+        SettingsSoundToggle.IsOn = s.SoundFeedbackEnabled;
+        SettingsHapticsToggle.IsOn = s.HapticFeedbackEnabled;
+        SettingsCloseToTrayToggle.IsOn = s.CloseToTray;
+        SettingsStartHeadlessToggle.IsOn = s.StartMinimizedHeadless;
+        SettingsLaunchToggle.IsOn = s.LaunchAtLogin;
+        LaunchAtLoginToggle.IsOn = s.LaunchAtLogin;
+        _isSyncingSettings = false;
+    }
+
+    private void BackgroundToggles_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isSyncingSettings) return;
+
+        var s = BackgroundSettingsService.Current;
+        s.AnimationsEnabled = SettingsAnimationsToggle.IsOn;
+        s.SoundFeedbackEnabled = SettingsSoundToggle.IsOn;
+        s.HapticFeedbackEnabled = SettingsHapticsToggle.IsOn;
+        s.CloseToTray = SettingsCloseToTrayToggle.IsOn;
+        s.StartMinimizedHeadless = SettingsStartHeadlessToggle.IsOn;
+        BackgroundSettingsService.ApplyStartupRegistry(SettingsLaunchToggle.IsOn);
+
+        FeedbackService.Play(FeedbackCue.WedgeTick);
+    }
+
+    private void HideToTray_Click(object sender, RoutedEventArgs e)
+    {
+        FeedbackService.Play(FeedbackCue.Dismiss);
+        MainWindow.CurrentInstance?.HideToBackgroundTray(showNotification: true);
+    }
+
+    private void QuitProcess_Click(object sender, RoutedEventArgs e)
+    {
+        MainWindow.CurrentInstance?.ExitApplication();
     }
 
     private void ApplyDynamicPalette()
@@ -78,17 +126,15 @@ public sealed partial class MainPage : Page
         var cardFillBrush = new SolidColorBrush(palette.SurfaceCardFill);
         var cardStrokeBrush = new SolidColorBrush(palette.SurfaceStroke);
 
-        // Top Bar
         BrandAccentDot.Fill = accentBrush;
         BrandTitleText.Foreground = textPrimaryBrush;
         BrandPillBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, palette.Accent.R, palette.Accent.G, palette.Accent.B));
         BrandPillBorder.BorderBrush = cardStrokeBrush;
         BrandPillText.Foreground = accentBrush;
         BrandPillText.Text = ThemeService.CurrentBackdrop == BackdropPreference.MicaAlt
-            ? "Mica Alt · Dynamic Accent"
-            : "Acrylic · Dynamic Accent";
+            ? "Mica Alt · Background Utility"
+            : "Acrylic · Background Utility";
 
-        // Wheel Frame
         MainWheelOuterEllipse.Fill = new SolidColorBrush(palette.WheelRingFill);
         MainWheelOuterEllipse.Stroke = cardStrokeBrush;
         MainWheelCenterBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
@@ -96,7 +142,6 @@ public sealed partial class MainPage : Page
         CenterSizeText.Foreground = textPrimaryBrush;
         CenterCountText.Foreground = textSecondaryBrush;
 
-        // Right Workspace Text & Translucent Cards
         ModeTitleText.Foreground = textPrimaryBrush;
         ModeSubtitleText.Foreground = textSecondaryBrush;
 
@@ -116,12 +161,10 @@ public sealed partial class MainPage : Page
         SelectedFilesSummaryText.Foreground = textPrimaryBrush;
         HoveredSectorDescriptionText.Foreground = accentBrush;
 
-        // Bottom Status Bar
         BottomStatusBarBorder.Background = cardFillBrush;
         StatusText.Foreground = textSecondaryBrush;
         OutputModeBadge.Foreground = accentBrush;
 
-        // Onboarding Dynamic Accent Gradient Card
         var onboardingGradient = new LinearGradientBrush
         {
             StartPoint = new Point(0, 0),
@@ -140,21 +183,20 @@ public sealed partial class MainPage : Page
         OnboardingNextBtn.Background = new SolidColorBrush(palette.WheelCenterFill);
         OnboardingNextBtn.Foreground = textPrimaryBrush;
 
-        // Settings Card
         SettingsCardBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
         SettingsCardBorder.BorderBrush = cardStrokeBrush;
         SettingsHeaderTitle.Foreground = textPrimaryBrush;
         SettingsAppearanceLabel.Foreground = accentBrush;
+        SettingsFeedbackLabel.Foreground = accentBrush;
         SettingsFolderLabel.Foreground = accentBrush;
         SettingsFolderStatusText.Foreground = textSecondaryBrush;
         SettingsShortcutsLabel.Foreground = accentBrush;
-        SettingsShortcutsBody.Foreground = textSecondaryBrush;
         SettingsDoneBtn.Background = accentBrush;
         SettingsDoneBtn.Foreground = textOnAccentBrush;
 
         UpdateTabButtonStyles(palette);
         UpdateOnboardingDots(palette);
-        RenderRadialWheel();
+        RebuildRadialWheelVisuals();
     }
 
     private void UpdateTabButtonStyles(DynamicPalette palette)
@@ -174,7 +216,7 @@ public sealed partial class MainPage : Page
         ActionsTabBtn.Foreground = _currentMode == WheelMode.Actions ? activeFg : inactiveFg;
     }
 
-    private void SwitchMode(WheelMode mode)
+    private void SwitchMode(WheelMode mode, bool animateAndSound = true)
     {
         _currentMode = mode;
         _currentSectors = FileProcessorService.GetSectorsForMode(mode, _loadedFiles);
@@ -203,14 +245,49 @@ public sealed partial class MainPage : Page
         }
 
         UpdateTabButtonStyles(ThemeService.GetCurrentPalette());
-        RenderRadialWheel();
+        RebuildRadialWheelVisuals();
+
+        if (animateAndSound)
+        {
+            FeedbackService.Play(FeedbackCue.ModeSwitch);
+            WheelAnimationHelper.AnimateModeSwitch(MainWheelTransform, MainCenterHubTransform);
+        }
     }
 
-    private void RenderRadialWheel()
+    private void SetSelectedSector(int newIndex, bool playTick)
+    {
+        if (newIndex == _selectedSectorIndex || newIndex < 0 || newIndex >= _currentSectors.Count)
+            return;
+
+        int prevIndex = _selectedSectorIndex;
+        _selectedSectorIndex = newIndex;
+
+        var palette = ThemeService.GetCurrentPalette();
+        if (prevIndex >= 0 && prevIndex < _wedgeNodes.Count)
+        {
+            WheelAnimationHelper.UpdateWedgeSelection(_wedgeNodes[prevIndex], false, palette);
+        }
+        if (newIndex < _wedgeNodes.Count)
+        {
+            WheelAnimationHelper.UpdateWedgeSelection(_wedgeNodes[newIndex], true, palette);
+        }
+
+        var active = _currentSectors[newIndex];
+        HoveredSectorDescriptionText.Text = $"{active.Label}: {active.Description}";
+
+        if (playTick)
+        {
+            FeedbackService.Play(FeedbackCue.WedgeTick);
+        }
+    }
+
+    private void RebuildRadialWheelVisuals()
     {
         var palette = ThemeService.GetCurrentPalette();
 
         WheelCanvas.Children.Clear();
+        _wedgeNodes.Clear();
+
         CenterSizeText.Text = FileProcessorService.FormatTotalSize(_loadedFiles);
         CenterCountText.Text = _loadedFiles.Count == 0
             ? "Drop files here"
@@ -222,7 +299,7 @@ public sealed partial class MainPage : Page
         const double cx = 190.0;
         const double cy = 190.0;
         const double innerRadius = 66.0;
-        const double outerRadius = 176.0;
+        const double outerRadius = 170.0;
         const double gapDegrees = 4.0;
 
         double sweepPerSector = 360.0 / count;
@@ -236,39 +313,47 @@ public sealed partial class MainPage : Page
 
             double a0 = startOffset + i * sweepPerSector + (gapDegrees / 2.0);
             double a1 = startOffset + (i + 1) * sweepPerSector - (gapDegrees / 2.0);
+            double midAngleRad = ((a0 + a1) / 2.0) * Math.PI / 180.0;
 
+            var wedgeTransform = new CompositeTransform { CenterX = cx, CenterY = cy };
             var wedgePath = CreateWedgePath(cx, cy, innerRadius, outerRadius, a0, a1, isSelected, palette);
-            wedgePath.PointerEntered += (_, _) =>
+            wedgePath.RenderTransform = wedgeTransform;
+
+            wedgePath.PointerEntered += (_, _) => SetSelectedSector(index, playTick: true);
+            wedgePath.PointerPressed += async (_, _) =>
             {
-                _selectedSectorIndex = index;
-                HoveredSectorDescriptionText.Text = $"{sector.Label}: {sector.Description}";
-                RenderRadialWheel();
+                SetSelectedSector(index, playTick: false);
+                if (index < _wedgeNodes.Count)
+                {
+                    WheelAnimationHelper.AnimateWedgeExecutionPulse(_wedgeNodes[index]);
+                }
+                await TriggerSectorAsync(sector);
             };
-            wedgePath.PointerPressed += async (_, _) => await TriggerSectorAsync(sector);
 
             WheelCanvas.Children.Add(wedgePath);
 
-            double midAngleRad = ((a0 + a1) / 2.0) * Math.PI / 180.0;
             double midRadius = (innerRadius + outerRadius) / 2.0;
             double labelX = cx + midRadius * Math.Cos(midAngleRad);
             double labelY = cy + midRadius * Math.Sin(midAngleRad);
 
+            var labelTransform = new CompositeTransform { CenterX = 42, CenterY = 20 };
             var labelStack = new StackPanel
             {
                 Spacing = 3,
                 Width = 84,
-                IsHitTestVisible = false
+                IsHitTestVisible = false,
+                RenderTransform = labelTransform
             };
 
-            labelStack.Children.Add(new FontIcon
+            var icon = new FontIcon
             {
                 Glyph = sector.Glyph,
                 FontSize = 16,
                 Foreground = new SolidColorBrush(isSelected ? palette.TextOnAccent : palette.Accent),
                 HorizontalAlignment = HorizontalAlignment.Center
-            });
+            };
 
-            labelStack.Children.Add(new TextBlock
+            var label = new TextBlock
             {
                 Text = sector.Label,
                 FontSize = 11,
@@ -276,11 +361,31 @@ public sealed partial class MainPage : Page
                 Foreground = new SolidColorBrush(isSelected ? palette.TextOnAccent : palette.TextPrimary),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextAlignment = TextAlignment.Center
-            });
+            };
+
+            labelStack.Children.Add(icon);
+            labelStack.Children.Add(label);
 
             Canvas.SetLeft(labelStack, labelX - 42);
             Canvas.SetTop(labelStack, labelY - 20);
             WheelCanvas.Children.Add(labelStack);
+
+            var node = new WedgeVisualNode
+            {
+                WedgePath = wedgePath,
+                LabelStack = labelStack,
+                Icon = icon,
+                Label = label,
+                WedgeTransform = wedgeTransform,
+                LabelTransform = labelTransform,
+                MidAngleRadians = midAngleRad
+            };
+            _wedgeNodes.Add(node);
+
+            if (isSelected)
+            {
+                WheelAnimationHelper.UpdateWedgeSelection(node, true, palette);
+            }
         }
 
         if (_selectedSectorIndex >= 0 && _selectedSectorIndex < _currentSectors.Count)
@@ -335,7 +440,9 @@ public sealed partial class MainPage : Page
 
     private async Task TriggerSectorAsync(SectorItem sector)
     {
+        FeedbackService.Play(FeedbackCue.ExecuteSuccess);
         StatusText.Text = $"Running {sector.Label}...";
+
         string result = await FileProcessorService.ExecuteSectorAsync(
             _currentMode,
             sector.Id,
@@ -379,10 +486,9 @@ public sealed partial class MainPage : Page
         double normalized = (deg - (-90.0 - sweep / 2.0) + 360.0) % 360.0;
         int idx = (int)(normalized / sweep);
 
-        if (idx >= 0 && idx < _currentSectors.Count && idx != _selectedSectorIndex)
+        if (idx >= 0 && idx < _currentSectors.Count)
         {
-            _selectedSectorIndex = idx;
-            RenderRadialWheel();
+            SetSelectedSector(idx, playTick: true);
         }
     }
 
@@ -401,7 +507,7 @@ public sealed partial class MainPage : Page
         }
 
         UpdateLoadedFilesSummary();
-        SwitchMode(_currentMode);
+        SwitchMode(_currentMode, animateAndSound: false);
 
         Point pt = e.GetPosition(WheelCanvas);
         double dx = pt.X - 190.0;
@@ -410,6 +516,10 @@ public sealed partial class MainPage : Page
         if (dist >= 60 && dist <= 185 && _selectedSectorIndex >= 0 && _selectedSectorIndex < _currentSectors.Count)
         {
             await TriggerSectorAsync(_currentSectors[_selectedSectorIndex]);
+        }
+        else
+        {
+            FeedbackService.Play(FeedbackCue.WheelSummon);
         }
     }
 
@@ -445,28 +555,33 @@ public sealed partial class MainPage : Page
             case VirtualKey.Down:
                 if (_currentSectors.Count > 0)
                 {
-                    _selectedSectorIndex = (_selectedSectorIndex + 1) % _currentSectors.Count;
-                    RenderRadialWheel();
+                    int next = (_selectedSectorIndex + 1) % _currentSectors.Count;
+                    SetSelectedSector(next, playTick: true);
                 }
                 break;
             case VirtualKey.Left:
             case VirtualKey.Up:
                 if (_currentSectors.Count > 0)
                 {
-                    _selectedSectorIndex = (_selectedSectorIndex - 1 + _currentSectors.Count) % _currentSectors.Count;
-                    RenderRadialWheel();
+                    int prev = (_selectedSectorIndex - 1 + _currentSectors.Count) % _currentSectors.Count;
+                    SetSelectedSector(prev, playTick: true);
                 }
                 break;
             case VirtualKey.Enter:
                 if (_selectedSectorIndex >= 0 && _selectedSectorIndex < _currentSectors.Count)
                 {
+                    if (_selectedSectorIndex < _wedgeNodes.Count)
+                    {
+                        WheelAnimationHelper.AnimateWedgeExecutionPulse(_wedgeNodes[_selectedSectorIndex]);
+                    }
                     await TriggerSectorAsync(_currentSectors[_selectedSectorIndex]);
                 }
                 break;
             case VirtualKey.Escape:
                 _loadedFiles.Clear();
                 UpdateLoadedFilesSummary();
-                RenderRadialWheel();
+                RebuildRadialWheelVisuals();
+                FeedbackService.Play(FeedbackCue.Dismiss);
                 StatusText.Text = "Cleared active file selection.";
                 break;
         }
@@ -478,6 +593,7 @@ public sealed partial class MainPage : Page
 
     private void PinToggleBtn_Changed(object sender, RoutedEventArgs e)
     {
+        FeedbackService.Play(FeedbackCue.WedgeTick);
         MainWindow.CurrentInstance?.SetAlwaysOnTop(PinToggleBtn.IsChecked == true);
     }
 
@@ -497,7 +613,8 @@ public sealed partial class MainPage : Page
             _loadedFiles.Clear();
             foreach (var f in files) _loadedFiles.Add(f.Path);
             UpdateLoadedFilesSummary();
-            SwitchMode(_currentMode);
+            SwitchMode(_currentMode, animateAndSound: false);
+            FeedbackService.Play(FeedbackCue.WheelSummon);
             StatusText.Text = $"Loaded {_loadedFiles.Count} file(s). Click a radial wedge or press Enter.";
         }
     }
@@ -538,7 +655,8 @@ public sealed partial class MainPage : Page
         _loadedFiles.Clear();
         _loadedFiles.Add(samplePath);
         UpdateLoadedFilesSummary();
-        SwitchMode(_currentMode);
+        SwitchMode(_currentMode, animateAndSound: false);
+        FeedbackService.Play(FeedbackCue.WheelSummon);
         StatusText.Text = $"Created & loaded dynamic-accent sample image at {samplePath}";
     }
 
@@ -555,7 +673,7 @@ public sealed partial class MainPage : Page
             case 0:
                 OnboardingStepTag.Text = "Welcome to";
                 OnboardingStepTitle.Text = "LemonAID";
-                OnboardingStepBody.Text = "Contextual radial wheels with Windows Mica Alt & Dynamic Accent theming.";
+                OnboardingStepBody.Text = "Contextual radial wheels with Windows Mica Alt, spring animations, and tactile sound/haptic feedback.";
                 break;
             case 1:
                 OnboardingStepTag.Text = "Step 2 of 6 · Shift Key Cue";
@@ -582,7 +700,7 @@ public sealed partial class MainPage : Page
             case 5:
                 OnboardingStepTag.Text = "Step 6 of 6 · Startup Preference";
                 OnboardingStepTitle.Text = "Finish setup";
-                OnboardingStepBody.Text = "Choose whether LemonAID launches at login. You can customize Mica Alt / Acrylic and shortcuts anytime in Settings.";
+                OnboardingStepBody.Text = "Choose whether LemonAID launches headlessly at login. You can customize animations, sound, and haptics in Settings.";
                 OnboardingExtraPanel.Visibility = Visibility.Visible;
                 LaunchAtLoginToggle.Visibility = Visibility.Visible;
                 break;
@@ -613,6 +731,7 @@ public sealed partial class MainPage : Page
         if (_onboardingStep > 0)
         {
             _onboardingStep--;
+            FeedbackService.Play(FeedbackCue.WedgeTick);
             UpdateOnboardingUI();
         }
     }
@@ -622,10 +741,12 @@ public sealed partial class MainPage : Page
         if (_onboardingStep < 5)
         {
             _onboardingStep++;
+            FeedbackService.Play(FeedbackCue.ModeSwitch);
             UpdateOnboardingUI();
         }
         else
         {
+            FeedbackService.Play(FeedbackCue.ExecuteSuccess);
             BackgroundSettingsService.Current.OnboardingCompleted = true;
             BackgroundSettingsService.ApplyStartupRegistry(LaunchAtLoginToggle.IsOn);
             SyncSettingsUIFromService();
@@ -637,12 +758,22 @@ public sealed partial class MainPage : Page
     private void OpenOnboarding_Click(object sender, RoutedEventArgs e)
     {
         _onboardingStep = 0;
+        FeedbackService.Play(FeedbackCue.WheelSummon);
         UpdateOnboardingUI();
         OnboardingOverlay.Visibility = Visibility.Visible;
     }
 
-    private void OpenSettings_Click(object sender, RoutedEventArgs e) => SettingsOverlay.Visibility = Visibility.Visible;
-    private void CloseSettings_Click(object sender, RoutedEventArgs e) => SettingsOverlay.Visibility = Visibility.Collapsed;
+    private void OpenSettings_Click(object sender, RoutedEventArgs e)
+    {
+        FeedbackService.Play(FeedbackCue.WedgeTick);
+        SettingsOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void CloseSettings_Click(object sender, RoutedEventArgs e)
+    {
+        FeedbackService.Play(FeedbackCue.WedgeTick);
+        SettingsOverlay.Visibility = Visibility.Collapsed;
+    }
 
     private void BackdropComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -693,6 +824,7 @@ public sealed partial class MainPage : Page
             OutputModeBadge.Text = $"Output: {folder.Name}";
             SettingsFolderStatusText.Text = $"Saving results to: {_customOutputFolder}";
             StatusText.Text = $"Updated output folder to {_customOutputFolder}";
+            FeedbackService.Play(FeedbackCue.ExecuteSuccess);
         }
     }
 
@@ -705,36 +837,6 @@ public sealed partial class MainPage : Page
         OutputModeBadge.Text = "Output: Beside Originals";
         SettingsFolderStatusText.Text = "Default: Results are saved next to the originals.";
         StatusText.Text = "Output location reset to save beside original files.";
-    }
-
-    private void SyncSettingsUIFromService()
-    {
-        _isSyncingSettings = true;
-        var s = BackgroundSettingsService.Current;
-        SettingsCloseToTrayToggle.IsOn = s.CloseToTray;
-        SettingsStartHeadlessToggle.IsOn = s.StartMinimizedHeadless;
-        SettingsLaunchToggle.IsOn = s.LaunchAtLogin;
-        LaunchAtLoginToggle.IsOn = s.LaunchAtLogin;
-        _isSyncingSettings = false;
-    }
-
-    private void BackgroundToggles_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_isSyncingSettings) return;
-
-        var s = BackgroundSettingsService.Current;
-        s.CloseToTray = SettingsCloseToTrayToggle.IsOn;
-        s.StartMinimizedHeadless = SettingsStartHeadlessToggle.IsOn;
-        BackgroundSettingsService.ApplyStartupRegistry(SettingsLaunchToggle.IsOn);
-    }
-
-    private void HideToTray_Click(object sender, RoutedEventArgs e)
-    {
-        MainWindow.CurrentInstance?.HideToBackgroundTray(showNotification: true);
-    }
-
-    private void QuitProcess_Click(object sender, RoutedEventArgs e)
-    {
-        MainWindow.CurrentInstance?.ExitApplication();
+        FeedbackService.Play(FeedbackCue.WedgeTick);
     }
 }

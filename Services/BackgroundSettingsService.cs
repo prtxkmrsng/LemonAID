@@ -13,6 +13,9 @@ public sealed class AppSettingsData
     public bool StartMinimizedHeadless { get; set; }
     public bool CloseToTray { get; set; } = true;
     public bool GlobalHookEnabled { get; set; } = true;
+    public bool AnimationsEnabled { get; set; } = true;
+    public bool SoundFeedbackEnabled { get; set; } = true;
+    public bool HapticFeedbackEnabled { get; set; } = true;
     public string? CustomOutputFolder { get; set; }
 }
 
@@ -46,7 +49,7 @@ public static class BackgroundSettingsService
         }
         catch
         {
-            // Fall back to default settings if file cannot be read
+            // Fall back to defaults
         }
 
         Current = new AppSettingsData();
@@ -82,7 +85,6 @@ public static class BackgroundSettingsService
                 string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
                 if (!string.IsNullOrWhiteSpace(exePath))
                 {
-                    // Launch silently in headless background mode on Windows sign-in
                     key.SetValue(AppRegistryName, $"\"{exePath}\" --headless");
                 }
             }
@@ -93,7 +95,7 @@ public static class BackgroundSettingsService
         }
         catch
         {
-            // Ignore if registry access is restricted by policy
+            // Ignore if registry access is restricted
         }
     }
 }
