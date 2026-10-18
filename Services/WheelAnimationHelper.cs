@@ -9,7 +9,7 @@ namespace LemonAID.Services;
 
 public sealed class WedgeVisualNode
 {
-    public required Path WedgePath { get; init; }
+    public required Microsoft.UI.Xaml.Shapes.Path WedgePath { get; init; }
     public required StackPanel LabelStack { get; init; }
     public required FontIcon Icon { get; init; }
     public required TextBlock Label { get; init; }

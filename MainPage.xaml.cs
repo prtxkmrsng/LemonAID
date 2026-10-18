@@ -457,15 +457,15 @@ public sealed partial class MainPage : Page
     {
         e.AcceptedOperation = DataPackageOperation.Copy;
 
-        if (e.Modifiers.HasFlag(DragDropModifiers.Shift))
+        if (e.Modifiers.HasFlag(Windows.ApplicationModel.DataTransfer.DragDrop.DragDropModifiers.Shift))
         {
             if (_currentMode != WheelMode.Converter) SwitchMode(WheelMode.Converter);
         }
-        else if (e.Modifiers.HasFlag(DragDropModifiers.Alt))
+        else if (e.Modifiers.HasFlag(Windows.ApplicationModel.DataTransfer.DragDrop.DragDropModifiers.Alt))
         {
             if (_currentMode != WheelMode.Tools) SwitchMode(WheelMode.Tools);
         }
-        else if (e.Modifiers.HasFlag(DragDropModifiers.Control))
+        else if (e.Modifiers.HasFlag(Windows.ApplicationModel.DataTransfer.DragDrop.DragDropModifiers.Control))
         {
             if (_currentMode != WheelMode.Actions) SwitchMode(WheelMode.Actions);
         }
