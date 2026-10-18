@@ -30,7 +30,7 @@ public static class FileProcessorService
         return mode switch
         {
             WheelMode.Converter => GetContextualConverterSectors(filePaths),
-            WheelMode.Tools =>
+            WheelMode.Tools => (SectorItem[])
             [
                 new("COMPRESS", "COMPRESS", "\uE740", "Reduce file size or create a compressed archive beside original"),
                 new("METADATA", "METADATA", "\uE8EC", "Inspect and strip embedded metadata into a clean copy"),
@@ -40,7 +40,7 @@ public static class FileProcessorService
                 new("CROP", "CROP", "\uE7A8", "Center-crop image to a 1:1 square aspect ratio"),
                 new("REDACT", "REDACT", "\uED1A", "Pixelate and mask the central sensitive region")
             ],
-            WheelMode.Actions =>
+            WheelMode.Actions => (SectorItem[])
             [
                 new("SHARE", "NEARBY", "\uE72D", "Reveal for Windows Nearby Share / Explorer transfer"),
                 new("FLOAT", "FLOAT", "\uE718", "Pin a floating Always-On-Top preview window"),
@@ -60,7 +60,7 @@ public static class FileProcessorService
             string ext = Path.GetExtension(filePaths[0]).ToLowerInvariant();
             if (ext is ".srt" or ".vtt" or ".txt" or ".md" or ".csv" or ".tsv")
             {
-                return
+                return (SectorItem[])
                 [
                     new("TXT", "TXT", "\uE8A5", "Convert to plain text (.txt)"),
                     new("MD", "MARKDOWN", "\uE8A5", "Convert to Markdown document (.md)"),
@@ -73,7 +73,7 @@ public static class FileProcessorService
         }
 
         // Default 6 format choices matching Tangerine onboarding wheel
-        return
+        return (SectorItem[])
         [
             new("PNG", "PNG", "\uEB9F", "Lossless PNG image"),
             new("WEBP", "WEBP", "\uEB9F", "WebP / high-efficiency image output"),

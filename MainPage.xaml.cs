@@ -12,6 +12,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.ApplicationModel.DataTransfer.DragDrop;
 using Windows.Foundation;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
@@ -394,9 +395,9 @@ public sealed partial class MainPage : Page
         // Generates a sample 400x400 Lemon test PNG in the user's Pictures/Temp folder so the user can test every tool immediately
         string folder = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
         if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
-            folder = Path.GetTempPath();
+            folder = System.IO.Path.GetTempPath();
 
-        string samplePath = Path.Combine(folder, "LemonAID_Sample.png");
+        string samplePath = System.IO.Path.Combine(folder, "LemonAID_Sample.png");
         uint w = 400, h = 400;
         byte[] pixels = new byte[w * h * 4];
         for (uint y = 0; y < h; y++)
