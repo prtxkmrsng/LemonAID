@@ -41,6 +41,7 @@
             <!-- Right-aligned controls padded away from Windows min/max/close caption buttons -->
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,138,0">
                 <ToggleButton x:Name="PinToggleBtn" Content="📌 Pin" FontSize="12" Checked="PinToggleBtn_Changed" Unchecked="PinToggleBtn_Changed" />
+                <Button Content="⬇ Hide to Tray" FontSize="12" Click="HideToTray_Click" />
                 <Button Content="🎓 Onboarding" FontSize="12" Click="OpenOnboarding_Click" />
                 <Button Content="⚙ Settings" FontSize="12" Click="OpenSettings_Click" />
             </StackPanel>
@@ -249,10 +250,30 @@
                                    FontSize="12" LineHeight="20" />
                     </StackPanel>
 
-                    <ToggleSwitch x:Name="SettingsLaunchToggle" Header="Launch LemonAID at Windows sign-in" IsOn="True" />
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="PowerToys Background &amp; Headless Mode" FontWeight="SemiBold" Foreground="{ThemeResource SystemAccentColorLight1}" />
+                        <ToggleSwitch x:Name="SettingsCloseToTrayToggle"
+                                      Header="Keep running in System Tray when closing window"
+                                      IsOn="True" Toggled="BackgroundToggles_Changed" />
+                        <ToggleSwitch x:Name="SettingsStartHeadlessToggle"
+                                      Header="Start silently in headless background mode"
+                                      IsOn="False" Toggled="BackgroundToggles_Changed" />
+                        <ToggleSwitch x:Name="SettingsLaunchToggle"
+                                      Header="Launch LemonAID at Windows sign-in (--headless)"
+                                      IsOn="True" Toggled="BackgroundToggles_Changed" />
+                    </StackPanel>
 
-                    <Button x:Name="SettingsDoneBtn" Content="Done" HorizontalAlignment="Right" Click="CloseSettings_Click"
-                            FontWeight="Bold" Padding="24,8" CornerRadius="12" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="⏻ Quit Background Process" Click="QuitProcess_Click"
+                                CornerRadius="12" Padding="16,8" />
+                        <Button Grid.Column="2" x:Name="SettingsDoneBtn" Content="Done" Click="CloseSettings_Click"
+                                FontWeight="Bold" Padding="24,8" CornerRadius="12" />
+                    </Grid>
                 </StackPanel>
             </Border>
         </Grid>

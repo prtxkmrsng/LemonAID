@@ -33,10 +33,15 @@ public sealed partial class MainPage : Page
     private int _selectedSectorIndex = -1;
     private string? _customOutputFolder;
     private int _onboardingStep = 0;
+    private bool _isSyncingSettings;
 
     public MainPage()
     {
         InitializeComponent();
+
+        var saved = BackgroundSettingsService.Current;
+        _customOutputFolder = saved.CustomOutputFolder;
+        CurrentCustomOutputFolder = _customOutputFolder;
 
         if (MainWindow.CurrentInstance != null)
         {
@@ -44,12 +49,17 @@ public sealed partial class MainPage : Page
             {
                 StatusText.Text = msg;
             };
+            MainWindow.CurrentInstance.SettingsStateChangedExternally += SyncSettingsUIFromService;
         }
 
         ThemeService.PaletteChanged += _ => ApplyDynamicPalette();
 
         Loaded += (_, _) =>
         {
+            SyncSettingsUIFromService();
+            OnboardingOverlay.Visibility = BackgroundSettingsService.Current.OnboardingCompleted
+                ? Visibility.Collapsed
+                : Visibility.Visible;
             ApplyDynamicPalette();
             UpdateOnboardingUI();
             SwitchMode(WheelMode.Converter);
@@ -616,6 +626,9 @@ public sealed partial class MainPage : Page
         }
         else
         {
+            BackgroundSettingsService.Current.OnboardingCompleted = true;
+            BackgroundSettingsService.ApplyStartupRegistry(LaunchAtLoginToggle.IsOn);
+            SyncSettingsUIFromService();
             OnboardingOverlay.Visibility = Visibility.Collapsed;
             Focus(FocusState.Programmatic);
         }
@@ -675,6 +688,8 @@ public sealed partial class MainPage : Page
         {
             _customOutputFolder = folder.Path;
             CurrentCustomOutputFolder = _customOutputFolder;
+            BackgroundSettingsService.Current.CustomOutputFolder = _customOutputFolder;
+            BackgroundSettingsService.Save();
             OutputModeBadge.Text = $"Output: {folder.Name}";
             SettingsFolderStatusText.Text = $"Saving results to: {_customOutputFolder}";
             StatusText.Text = $"Updated output folder to {_customOutputFolder}";
@@ -685,8 +700,41 @@ public sealed partial class MainPage : Page
     {
         _customOutputFolder = null;
         CurrentCustomOutputFolder = null;
+        BackgroundSettingsService.Current.CustomOutputFolder = null;
+        BackgroundSettingsService.Save();
         OutputModeBadge.Text = "Output: Beside Originals";
         SettingsFolderStatusText.Text = "Default: Results are saved next to the originals.";
         StatusText.Text = "Output location reset to save beside original files.";
+    }
+
+    private void SyncSettingsUIFromService()
+    {
+        _isSyncingSettings = true;
+        var s = BackgroundSettingsService.Current;
+        SettingsCloseToTrayToggle.IsOn = s.CloseToTray;
+        SettingsStartHeadlessToggle.IsOn = s.StartMinimizedHeadless;
+        SettingsLaunchToggle.IsOn = s.LaunchAtLogin;
+        LaunchAtLoginToggle.IsOn = s.LaunchAtLogin;
+        _isSyncingSettings = false;
+    }
+
+    private void BackgroundToggles_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isSyncingSettings) return;
+
+        var s = BackgroundSettingsService.Current;
+        s.CloseToTray = SettingsCloseToTrayToggle.IsOn;
+        s.StartMinimizedHeadless = SettingsStartHeadlessToggle.IsOn;
+        BackgroundSettingsService.ApplyStartupRegistry(SettingsLaunchToggle.IsOn);
+    }
+
+    private void HideToTray_Click(object sender, RoutedEventArgs e)
+    {
+        MainWindow.CurrentInstance?.HideToBackgroundTray(showNotification: true);
+    }
+
+    private void QuitProcess_Click(object sender, RoutedEventArgs e)
+    {
+        MainWindow.CurrentInstance?.ExitApplication();
     }
 }
