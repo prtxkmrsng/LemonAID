@@ -52,3 +52,12 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+[Bb]in/
+[Oo]bj/
+AppPackages/
+BundleArtifacts/
+*.pfx
+*.cer
+*.user
+.vs/
