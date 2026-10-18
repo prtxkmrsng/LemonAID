@@ -217,10 +217,10 @@ public sealed partial class RadialOverlayWindow : Window
         var palette = ThemeService.GetCurrentPalette();
 
         OuterRingEllipse.Fill = new SolidColorBrush(palette.WheelRingFill);
-        OuterRingEllipse.Stroke = new SolidColorBrush(palette.Accent);
+        OuterRingEllipse.Stroke = new SolidColorBrush(palette.SurfaceStroke);
 
         CenterHubBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
-        CenterHubBorder.BorderBrush = new SolidColorBrush(palette.Accent);
+        CenterHubBorder.BorderBrush = new SolidColorBrush(palette.SurfaceStroke);
 
         OverlayModeBadge.Foreground = new SolidColorBrush(palette.Accent);
         OverlaySizeText.Foreground = new SolidColorBrush(palette.TextPrimary);
@@ -234,7 +234,7 @@ public sealed partial class RadialOverlayWindow : Window
 
         const double cx = 190.0;
         const double cy = 190.0;
-        const double rIn = 64.0;
+        const double rIn = 66.0;
         const double rOut = 172.0;
         const double gapDeg = 4.0;
 

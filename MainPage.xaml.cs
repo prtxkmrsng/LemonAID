@@ -33,7 +33,7 @@ public sealed partial class MainPage : Page
     private int _selectedSectorIndex = -1;
     private string? _customOutputFolder;
     private int _onboardingStep = 0;
-    private bool _isSyncingSettings;
+    private bool _isSyncingSettings = true;
 
     public MainPage()
     {
@@ -72,6 +72,7 @@ public sealed partial class MainPage : Page
             SwitchMode(WheelMode.Converter, animateAndSound: false);
             WheelAnimationHelper.AnimateWheelSummon(MainWheelContainer, MainWheelTransform, MainCenterHubTransform);
             Focus(FocusState.Programmatic);
+            _isSyncingSettings = false;
         };
     }
 
@@ -79,19 +80,22 @@ public sealed partial class MainPage : Page
     {
         _isSyncingSettings = true;
         var s = BackgroundSettingsService.Current;
-        SettingsAnimationsToggle.IsOn = s.AnimationsEnabled;
-        SettingsSoundToggle.IsOn = s.SoundFeedbackEnabled;
-        SettingsHapticsToggle.IsOn = s.HapticFeedbackEnabled;
-        SettingsCloseToTrayToggle.IsOn = s.CloseToTray;
-        SettingsStartHeadlessToggle.IsOn = s.StartMinimizedHeadless;
-        SettingsLaunchToggle.IsOn = s.LaunchAtLogin;
-        LaunchAtLoginToggle.IsOn = s.LaunchAtLogin;
+        if (SettingsAnimationsToggle != null) SettingsAnimationsToggle.IsOn = s.AnimationsEnabled;
+        if (SettingsSoundToggle != null) SettingsSoundToggle.IsOn = s.SoundFeedbackEnabled;
+        if (SettingsHapticsToggle != null) SettingsHapticsToggle.IsOn = s.HapticFeedbackEnabled;
+        if (SettingsCloseToTrayToggle != null) SettingsCloseToTrayToggle.IsOn = s.CloseToTray;
+        if (SettingsStartHeadlessToggle != null) SettingsStartHeadlessToggle.IsOn = s.StartMinimizedHeadless;
+        if (SettingsLaunchToggle != null) SettingsLaunchToggle.IsOn = s.LaunchAtLogin;
+        if (LaunchAtLoginToggle != null) LaunchAtLoginToggle.IsOn = s.LaunchAtLogin;
         _isSyncingSettings = false;
     }
 
     private void BackgroundToggles_Changed(object sender, RoutedEventArgs e)
     {
         if (_isSyncingSettings) return;
+        if (SettingsAnimationsToggle == null || SettingsSoundToggle == null ||
+            SettingsHapticsToggle == null || SettingsCloseToTrayToggle == null ||
+            SettingsStartHeadlessToggle == null || SettingsLaunchToggle == null) return;
 
         var s = BackgroundSettingsService.Current;
         s.AnimationsEnabled = SettingsAnimationsToggle.IsOn;
@@ -126,9 +130,10 @@ public sealed partial class MainPage : Page
         var cardFillBrush = new SolidColorBrush(palette.SurfaceCardFill);
         var cardStrokeBrush = new SolidColorBrush(palette.SurfaceStroke);
 
+        TopTitleBarGrid.BorderBrush = cardStrokeBrush;
         BrandAccentDot.Fill = accentBrush;
         BrandTitleText.Foreground = textPrimaryBrush;
-        BrandPillBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, palette.Accent.R, palette.Accent.G, palette.Accent.B));
+        BrandPillBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(35, palette.Accent.R, palette.Accent.G, palette.Accent.B));
         BrandPillBorder.BorderBrush = cardStrokeBrush;
         BrandPillText.Foreground = accentBrush;
         BrandPillText.Text = ThemeService.CurrentBackdrop == BackdropPreference.MicaAlt
@@ -138,7 +143,7 @@ public sealed partial class MainPage : Page
         MainWheelOuterEllipse.Fill = new SolidColorBrush(palette.WheelRingFill);
         MainWheelOuterEllipse.Stroke = cardStrokeBrush;
         MainWheelCenterBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
-        MainWheelCenterBorder.BorderBrush = accentBrush;
+        MainWheelCenterBorder.BorderBrush = cardStrokeBrush;
         CenterSizeText.Foreground = textPrimaryBrush;
         CenterCountText.Foreground = textSecondaryBrush;
 
@@ -151,7 +156,7 @@ public sealed partial class MainPage : Page
         Step2LabelText.Foreground = textPrimaryBrush;
 
         KeycapBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
-        KeycapBorder.BorderBrush = accentBrush;
+        KeycapBorder.BorderBrush = cardStrokeBrush;
         KeycapSymbolText.Foreground = accentBrush;
         KeycapLabelText.Foreground = textPrimaryBrush;
         KeycapHintText.Foreground = textSecondaryBrush;
@@ -162,28 +167,25 @@ public sealed partial class MainPage : Page
         HoveredSectorDescriptionText.Foreground = accentBrush;
 
         BottomStatusBarBorder.Background = cardFillBrush;
+        BottomStatusBarBorder.BorderBrush = cardStrokeBrush;
         StatusText.Foreground = textSecondaryBrush;
         OutputModeBadge.Foreground = accentBrush;
 
-        var onboardingGradient = new LinearGradientBrush
-        {
-            StartPoint = new Point(0, 0),
-            EndPoint = new Point(1, 1)
-        };
-        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.AccentDark1, Offset = 0.0 });
-        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.Accent, Offset = 0.55 });
-        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.AccentLight2, Offset = 1.0 });
+        OnboardingCardBorder.Background = cardFillBrush;
+        OnboardingCardBorder.BorderBrush = cardStrokeBrush;
+        OnboardingStepTag.Foreground = accentBrush;
+        OnboardingStepTitle.Foreground = textPrimaryBrush;
+        OnboardingStepBody.Foreground = textSecondaryBrush;
+        OnboardingNextBtn.Background = accentBrush;
+        OnboardingNextBtn.Foreground = textOnAccentBrush;
+        OnboardingBackBtn.Background = cardFillBrush;
+        OnboardingBackBtn.Foreground = textPrimaryBrush;
+        OnboardingBackBtn.BorderBrush = cardStrokeBrush;
+        OnboardingFolderBtn.Background = cardFillBrush;
+        OnboardingFolderBtn.Foreground = textPrimaryBrush;
+        OnboardingFolderBtn.BorderBrush = cardStrokeBrush;
 
-        OnboardingCardBorder.Background = onboardingGradient;
-        OnboardingCardBorder.BorderBrush = new SolidColorBrush(palette.AccentLight2);
-        OnboardingStepTag.Foreground = textOnAccentBrush;
-        OnboardingStepTitle.Foreground = textOnAccentBrush;
-        OnboardingStepBody.Foreground = textOnAccentBrush;
-
-        OnboardingNextBtn.Background = new SolidColorBrush(palette.WheelCenterFill);
-        OnboardingNextBtn.Foreground = textPrimaryBrush;
-
-        SettingsCardBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
+        SettingsCardBorder.Background = cardFillBrush;
         SettingsCardBorder.BorderBrush = cardStrokeBrush;
         SettingsHeaderTitle.Foreground = textPrimaryBrush;
         SettingsAppearanceLabel.Foreground = accentBrush;
@@ -203,17 +205,22 @@ public sealed partial class MainPage : Page
     {
         var activeBg = new SolidColorBrush(palette.Accent);
         var activeFg = new SolidColorBrush(palette.TextOnAccent);
+        var activeBorder = new SolidColorBrush(palette.AccentLight1);
         var inactiveBg = new SolidColorBrush(palette.SurfaceCardFill);
         var inactiveFg = new SolidColorBrush(palette.TextPrimary);
+        var inactiveBorder = new SolidColorBrush(palette.SurfaceStroke);
 
         ConverterTabBtn.Background = _currentMode == WheelMode.Converter ? activeBg : inactiveBg;
         ConverterTabBtn.Foreground = _currentMode == WheelMode.Converter ? activeFg : inactiveFg;
+        ConverterTabBtn.BorderBrush = _currentMode == WheelMode.Converter ? activeBorder : inactiveBorder;
 
         ToolsTabBtn.Background = _currentMode == WheelMode.Tools ? activeBg : inactiveBg;
         ToolsTabBtn.Foreground = _currentMode == WheelMode.Tools ? activeFg : inactiveFg;
+        ToolsTabBtn.BorderBrush = _currentMode == WheelMode.Tools ? activeBorder : inactiveBorder;
 
         ActionsTabBtn.Background = _currentMode == WheelMode.Actions ? activeBg : inactiveBg;
         ActionsTabBtn.Foreground = _currentMode == WheelMode.Actions ? activeFg : inactiveFg;
+        ActionsTabBtn.BorderBrush = _currentMode == WheelMode.Actions ? activeBorder : inactiveBorder;
     }
 
     private void SwitchMode(WheelMode mode, bool animateAndSound = true)
@@ -229,18 +236,21 @@ public sealed partial class MainPage : Page
                 ModeSubtitleText.Text = "Select an output format wedge on the wheel. Results are saved next to the originals.";
                 KeycapSymbolText.Text = "⇧";
                 KeycapLabelText.Text = "shift";
+                KeycapHintText.Text = "or hold Left-Click on files in Explorer + tap Shift";
                 break;
             case WheelMode.Tools:
                 ModeTitleText.Text = "File Tools";
                 ModeSubtitleText.Text = "Run non-destructive editing, compression, metadata cleanup, cropping, or redaction.";
                 KeycapSymbolText.Text = "⎇";
                 KeycapLabelText.Text = "alt";
+                KeycapHintText.Text = "or hold Left-Click on files in Explorer + tap Alt";
                 break;
             case WheelMode.Actions:
                 ModeTitleText.Text = "File Actions";
                 ModeSubtitleText.Text = "Route files to Nearby Share, Float preview, Clipboard, Move, Copy Path, or Terminal.";
                 KeycapSymbolText.Text = "⌃";
                 KeycapLabelText.Text = "ctrl";
+                KeycapHintText.Text = "or hold Left-Click on files in Explorer + tap Ctrl";
                 break;
         }
 
@@ -299,7 +309,7 @@ public sealed partial class MainPage : Page
         const double cx = 190.0;
         const double cy = 190.0;
         const double innerRadius = 66.0;
-        const double outerRadius = 170.0;
+        const double outerRadius = 172.0;
         const double gapDegrees = 4.0;
 
         double sweepPerSector = 360.0 / count;
@@ -336,11 +346,11 @@ public sealed partial class MainPage : Page
             double labelX = cx + midRadius * Math.Cos(midAngleRad);
             double labelY = cy + midRadius * Math.Sin(midAngleRad);
 
-            var labelTransform = new CompositeTransform { CenterX = 42, CenterY = 20 };
+            var labelTransform = new CompositeTransform { CenterX = 40, CenterY = 18 };
             var labelStack = new StackPanel
             {
-                Spacing = 3,
-                Width = 84,
+                Spacing = 2,
+                Width = 80,
                 IsHitTestVisible = false,
                 RenderTransform = labelTransform
             };
@@ -366,8 +376,8 @@ public sealed partial class MainPage : Page
             labelStack.Children.Add(icon);
             labelStack.Children.Add(label);
 
-            Canvas.SetLeft(labelStack, labelX - 42);
-            Canvas.SetTop(labelStack, labelY - 20);
+            Canvas.SetLeft(labelStack, labelX - 40);
+            Canvas.SetTop(labelStack, labelY - 18);
             WheelCanvas.Children.Add(labelStack);
 
             var node = new WedgeVisualNode
@@ -594,7 +604,13 @@ public sealed partial class MainPage : Page
     private void PinToggleBtn_Changed(object sender, RoutedEventArgs e)
     {
         FeedbackService.Play(FeedbackCue.WedgeTick);
-        MainWindow.CurrentInstance?.SetAlwaysOnTop(PinToggleBtn.IsChecked == true);
+        bool isPinned = PinToggleBtn.IsChecked == true;
+        PinToggleBtn.Content = isPinned ? "📌 Pinned" : "📌 Pin";
+        var palette = ThemeService.GetCurrentPalette();
+        PinToggleBtn.Foreground = isPinned
+            ? new SolidColorBrush(palette.Accent)
+            : new SolidColorBrush(palette.TextPrimary);
+        MainWindow.CurrentInstance?.SetAlwaysOnTop(isPinned);
     }
 
     private async void BrowseFiles_Click(object sender, RoutedEventArgs e)
@@ -671,7 +687,7 @@ public sealed partial class MainPage : Page
         switch (_onboardingStep)
         {
             case 0:
-                OnboardingStepTag.Text = "Welcome to";
+                OnboardingStepTag.Text = "Step 1 of 6 · Welcome";
                 OnboardingStepTitle.Text = "LemonAID";
                 OnboardingStepBody.Text = "Contextual radial wheels with Windows Mica Alt, spring animations, and tactile sound/haptic feedback.";
                 break;

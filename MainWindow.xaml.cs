@@ -81,6 +81,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            AppWindow.Show();
             Activate();
         }
     }
@@ -107,15 +108,24 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
     public void ShowDashboardWindow()
     {
         AppWindow.IsShownInSwitchers = true;
-        AppWindow.Show();
+        AppWindow.Show(true);
         if (AppWindow.Presenter is OverlappedPresenter presenter && presenter.State == OverlappedPresenterState.Minimized)
         {
             presenter.Restore();
         }
         Activate();
+        IntPtr hwnd = WindowNative.GetWindowHandle(this);
+        ShowWindow(hwnd, 9); // SW_RESTORE
+        SetForegroundWindow(hwnd);
     }
 
     public void ExitApplication()
@@ -255,11 +265,11 @@ public sealed partial class MainWindow : Window
             SystemBackdrop = new DesktopAcrylicBackdrop()
         };
 
-        floatWin.AppWindow.Resize(new SizeInt32(360, 320));
+        floatWin.AppWindow.Resize(new SizeInt32(420, 360));
         if (floatWin.AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsAlwaysOnTop = true;
-            presenter.IsMaximizable = false;
+            presenter.IsMaximizable = true;
         }
 
         var root = new Grid
@@ -280,13 +290,15 @@ public sealed partial class MainWindow : Window
             Text = $"📌 {Path.GetFileName(filePath.TrimEnd(Path.DirectorySeparatorChar))}",
             Foreground = new SolidColorBrush(palette.Accent),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Margin = new Thickness(0, 8, 0, 12)
+            FontSize = 14,
+            Margin = new Thickness(0, 4, 0, 10),
+            TextTrimming = TextTrimming.CharacterEllipsis
         };
         Grid.SetRow(header, 0);
         root.Children.Add(header);
 
         string ext = Path.GetExtension(filePath).ToLowerInvariant();
-        if (File.Exists(filePath) && ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".webp")
+        if (File.Exists(filePath) && ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".webp" or ".tiff" or ".ico")
         {
             var img = new Image
             {
@@ -296,14 +308,45 @@ public sealed partial class MainWindow : Window
             Grid.SetRow(img, 1);
             root.Children.Add(img);
         }
+        else if (File.Exists(filePath) && ext is ".txt" or ".md" or ".json" or ".csv" or ".tsv" or ".xml" or ".yaml" or ".yml" or ".html" or ".css" or ".cs" or ".js" or ".ts" or ".py" or ".cpp" or ".c" or ".h" or ".log" or ".ini" or ".srt" or ".vtt")
+        {
+            string content;
+            try
+            {
+                content = File.ReadAllText(filePath);
+                if (content.Length > 20000) content = content.Substring(0, 20000) + "\n\n... [Truncated for preview]";
+            }
+            catch (Exception ex)
+            {
+                content = $"Could not read preview: {ex.Message}";
+            }
+
+            var textBox = new TextBox
+            {
+                Text = content,
+                IsReadOnly = true,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
+                FontSize = 12,
+                Background = new SolidColorBrush(palette.WheelRingFill),
+                Foreground = new SolidColorBrush(palette.TextPrimary),
+                BorderBrush = new SolidColorBrush(palette.SurfaceStroke)
+            };
+            Grid.SetRow(textBox, 1);
+            root.Children.Add(textBox);
+        }
         else
         {
+            long size = 0;
+            if (File.Exists(filePath)) size = new FileInfo(filePath).Length;
             var infoText = new TextBlock
             {
-                Text = $"Path:\n{filePath}",
+                Text = $"Universal File Item\n\nName: {Path.GetFileName(filePath)}\nExtension: {ext}\nSize: {FileProcessorService.FormatTotalSize((string[])[filePath])}\nFull Path:\n{filePath}",
                 Foreground = new SolidColorBrush(palette.TextPrimary),
                 TextWrapping = TextWrapping.Wrap,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 13
             };
             Grid.SetRow(infoText, 1);
             root.Children.Add(infoText);

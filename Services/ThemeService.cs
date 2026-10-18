@@ -155,14 +155,14 @@ public static class ThemeService
                 AccentLight2: accentLight2,
                 AccentDark1: accentDark1,
                 TextPrimary: Color.FromArgb(255, 248, 250, 252),
-                TextSecondary: Color.FromArgb(200, 203, 213, 225),
+                TextSecondary: Color.FromArgb(210, 148, 163, 184),
                 TextOnAccent: textOnAccent,
-                SurfaceCardFill: Color.FromArgb(110, 28, 30, 36),
-                SurfaceStroke: Color.FromArgb(75, accentLight2.R, accentLight2.G, accentLight2.B),
-                WedgeFill: Color.FromArgb(145, 32, 34, 42),
-                WedgeStroke: Color.FromArgb(95, accentLight1.R, accentLight1.G, accentLight1.B),
-                WheelRingFill: Color.FromArgb(95, 20, 22, 28),
-                WheelCenterFill: Color.FromArgb(195, 18, 20, 26));
+                SurfaceCardFill: Color.FromArgb(140, 24, 27, 34),
+                SurfaceStroke: Color.FromArgb(32, 255, 255, 255),
+                WedgeFill: Color.FromArgb(160, 32, 36, 45),
+                WedgeStroke: Color.FromArgb(36, 255, 255, 255),
+                WheelRingFill: Color.FromArgb(90, 16, 18, 24),
+                WheelCenterFill: Color.FromArgb(225, 20, 23, 29));
         }
         else
         {
@@ -173,14 +173,14 @@ public static class ThemeService
                 AccentLight2: accentLight2,
                 AccentDark1: accentDark1,
                 TextPrimary: Color.FromArgb(255, 15, 23, 42),
-                TextSecondary: Color.FromArgb(200, 71, 85, 105),
+                TextSecondary: Color.FromArgb(220, 71, 85, 105),
                 TextOnAccent: textOnAccent,
-                SurfaceCardFill: Color.FromArgb(145, 255, 255, 255),
-                SurfaceStroke: Color.FromArgb(85, accent.R, accent.G, accent.B),
-                WedgeFill: Color.FromArgb(175, 248, 250, 252),
-                WedgeStroke: Color.FromArgb(100, accent.R, accent.G, accent.B),
-                WheelRingFill: Color.FromArgb(110, 241, 245, 249),
-                WheelCenterFill: Color.FromArgb(215, 255, 255, 255));
+                SurfaceCardFill: Color.FromArgb(195, 255, 255, 255),
+                SurfaceStroke: Color.FromArgb(24, 0, 0, 0),
+                WedgeFill: Color.FromArgb(210, 248, 250, 252),
+                WedgeStroke: Color.FromArgb(20, 0, 0, 0),
+                WheelRingFill: Color.FromArgb(120, 241, 245, 249),
+                WheelCenterFill: Color.FromArgb(235, 255, 255, 255));
         }
     }
 }
