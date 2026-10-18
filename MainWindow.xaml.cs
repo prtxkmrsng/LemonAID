@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using LemonAID.Services;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -20,6 +21,8 @@ public sealed partial class MainWindow : Window
     private RadialOverlayWindow? _overlayWindow;
     private readonly DispatcherQueue _dispatcherQueue;
 
+    public RadialOverlayWindow? OverlayWindowInstance => _overlayWindow;
+
     public event Action<string>? GlobalOverlayStatusReceived;
 
     public MainWindow()
@@ -28,8 +31,12 @@ public sealed partial class MainWindow : Window
         CurrentInstance = this;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
+        ThemeService.Initialize(_dispatcherQueue);
+        ThemeService.ApplyBackdropToWindow(this, isTransientOverlay: false);
+        ThemeService.PaletteChanged += _ => ThemeService.StyleTitleBarButtons(this);
+
         ExtendsContentIntoTitleBar = true;
-        AppWindow.Resize(new SizeInt32(960, 640));
+        AppWindow.Resize(new SizeInt32(980, 650));
 
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -118,10 +125,13 @@ public sealed partial class MainWindow : Window
 
     public static void SpawnFloatingFileWindow(string filePath)
     {
+        var palette = ThemeService.GetCurrentPalette();
+
         var floatWin = new Window
         {
             Title = $"Float — {Path.GetFileName(filePath)}",
-            ExtendsContentIntoTitleBar = true
+            ExtendsContentIntoTitleBar = true,
+            SystemBackdrop = new DesktopAcrylicBackdrop()
         };
 
         floatWin.AppWindow.Resize(new SizeInt32(360, 320));
@@ -133,8 +143,9 @@ public sealed partial class MainWindow : Window
 
         var root = new Grid
         {
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 24, 24, 27)),
+            Background = new SolidColorBrush(Colors.Transparent),
             Padding = new Thickness(16),
+            RequestedTheme = ThemeService.CurrentThemeOverride,
             RowDefinitions =
             {
                 new RowDefinition { Height = GridLength.Auto },
@@ -146,7 +157,7 @@ public sealed partial class MainWindow : Window
         var header = new TextBlock
         {
             Text = $"📌 {Path.GetFileName(filePath.TrimEnd(Path.DirectorySeparatorChar))}",
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 250, 204, 21)),
+            Foreground = new SolidColorBrush(palette.Accent),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Margin = new Thickness(0, 8, 0, 12)
         };
@@ -169,7 +180,7 @@ public sealed partial class MainWindow : Window
             var infoText = new TextBlock
             {
                 Text = $"Path:\n{filePath}",
-                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(220, 255, 255, 255)),
+                Foreground = new SolidColorBrush(palette.TextPrimary),
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -181,6 +192,9 @@ public sealed partial class MainWindow : Window
         {
             Content = "Dismiss Float",
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(palette.Accent),
+            Foreground = new SolidColorBrush(palette.TextOnAccent),
+            CornerRadius = new CornerRadius(10),
             Margin = new Thickness(0, 12, 0, 0)
         };
         closeBtn.Click += (_, _) => floatWin.Close();
@@ -188,6 +202,7 @@ public sealed partial class MainWindow : Window
         root.Children.Add(closeBtn);
 
         floatWin.Content = root;
+        ThemeService.StyleTitleBarButtons(floatWin);
         floatWin.Activate();
     }
 }

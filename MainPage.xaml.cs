@@ -5,7 +5,6 @@ using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
 using LemonAID.Services;
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -47,12 +46,122 @@ public sealed partial class MainPage : Page
             };
         }
 
+        ThemeService.PaletteChanged += _ => ApplyDynamicPalette();
+
         Loaded += (_, _) =>
         {
+            ApplyDynamicPalette();
             UpdateOnboardingUI();
             SwitchMode(WheelMode.Converter);
             Focus(FocusState.Programmatic);
         };
+    }
+
+    private void ApplyDynamicPalette()
+    {
+        var palette = ThemeService.GetCurrentPalette();
+
+        var accentBrush = new SolidColorBrush(palette.Accent);
+        var textPrimaryBrush = new SolidColorBrush(palette.TextPrimary);
+        var textSecondaryBrush = new SolidColorBrush(palette.TextSecondary);
+        var textOnAccentBrush = new SolidColorBrush(palette.TextOnAccent);
+        var cardFillBrush = new SolidColorBrush(palette.SurfaceCardFill);
+        var cardStrokeBrush = new SolidColorBrush(palette.SurfaceStroke);
+
+        // Top Bar
+        BrandAccentDot.Fill = accentBrush;
+        BrandTitleText.Foreground = textPrimaryBrush;
+        BrandPillBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, palette.Accent.R, palette.Accent.G, palette.Accent.B));
+        BrandPillBorder.BorderBrush = cardStrokeBrush;
+        BrandPillText.Foreground = accentBrush;
+        BrandPillText.Text = ThemeService.CurrentBackdrop == BackdropPreference.MicaAlt
+            ? "Mica Alt · Dynamic Accent"
+            : "Acrylic · Dynamic Accent";
+
+        // Wheel Frame
+        MainWheelOuterEllipse.Fill = new SolidColorBrush(palette.WheelRingFill);
+        MainWheelOuterEllipse.Stroke = cardStrokeBrush;
+        MainWheelCenterBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
+        MainWheelCenterBorder.BorderBrush = accentBrush;
+        CenterSizeText.Foreground = textPrimaryBrush;
+        CenterCountText.Foreground = textSecondaryBrush;
+
+        // Right Workspace Text & Translucent Cards
+        ModeTitleText.Foreground = textPrimaryBrush;
+        ModeSubtitleText.Foreground = textSecondaryBrush;
+
+        InstructionCardBorder.Background = cardFillBrush;
+        InstructionCardBorder.BorderBrush = cardStrokeBrush;
+        Step1LabelText.Foreground = textPrimaryBrush;
+        Step2LabelText.Foreground = textPrimaryBrush;
+
+        KeycapBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
+        KeycapBorder.BorderBrush = accentBrush;
+        KeycapSymbolText.Foreground = accentBrush;
+        KeycapLabelText.Foreground = textPrimaryBrush;
+        KeycapHintText.Foreground = textSecondaryBrush;
+
+        SummaryCardBorder.Background = cardFillBrush;
+        SummaryCardBorder.BorderBrush = cardStrokeBrush;
+        SelectedFilesSummaryText.Foreground = textPrimaryBrush;
+        HoveredSectorDescriptionText.Foreground = accentBrush;
+
+        // Bottom Status Bar
+        BottomStatusBarBorder.Background = cardFillBrush;
+        StatusText.Foreground = textSecondaryBrush;
+        OutputModeBadge.Foreground = accentBrush;
+
+        // Onboarding Dynamic Accent Gradient Card
+        var onboardingGradient = new LinearGradientBrush
+        {
+            StartPoint = new Point(0, 0),
+            EndPoint = new Point(1, 1)
+        };
+        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.AccentDark1, Offset = 0.0 });
+        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.Accent, Offset = 0.55 });
+        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.AccentLight2, Offset = 1.0 });
+
+        OnboardingCardBorder.Background = onboardingGradient;
+        OnboardingCardBorder.BorderBrush = new SolidColorBrush(palette.AccentLight2);
+        OnboardingStepTag.Foreground = textOnAccentBrush;
+        OnboardingStepTitle.Foreground = textOnAccentBrush;
+        OnboardingStepBody.Foreground = textOnAccentBrush;
+
+        OnboardingNextBtn.Background = new SolidColorBrush(palette.WheelCenterFill);
+        OnboardingNextBtn.Foreground = textPrimaryBrush;
+
+        // Settings Card
+        SettingsCardBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
+        SettingsCardBorder.BorderBrush = cardStrokeBrush;
+        SettingsHeaderTitle.Foreground = textPrimaryBrush;
+        SettingsAppearanceLabel.Foreground = accentBrush;
+        SettingsFolderLabel.Foreground = accentBrush;
+        SettingsFolderStatusText.Foreground = textSecondaryBrush;
+        SettingsShortcutsLabel.Foreground = accentBrush;
+        SettingsShortcutsBody.Foreground = textSecondaryBrush;
+        SettingsDoneBtn.Background = accentBrush;
+        SettingsDoneBtn.Foreground = textOnAccentBrush;
+
+        UpdateTabButtonStyles(palette);
+        UpdateOnboardingDots(palette);
+        RenderRadialWheel();
+    }
+
+    private void UpdateTabButtonStyles(DynamicPalette palette)
+    {
+        var activeBg = new SolidColorBrush(palette.Accent);
+        var activeFg = new SolidColorBrush(palette.TextOnAccent);
+        var inactiveBg = new SolidColorBrush(palette.SurfaceCardFill);
+        var inactiveFg = new SolidColorBrush(palette.TextPrimary);
+
+        ConverterTabBtn.Background = _currentMode == WheelMode.Converter ? activeBg : inactiveBg;
+        ConverterTabBtn.Foreground = _currentMode == WheelMode.Converter ? activeFg : inactiveFg;
+
+        ToolsTabBtn.Background = _currentMode == WheelMode.Tools ? activeBg : inactiveBg;
+        ToolsTabBtn.Foreground = _currentMode == WheelMode.Tools ? activeFg : inactiveFg;
+
+        ActionsTabBtn.Background = _currentMode == WheelMode.Actions ? activeBg : inactiveBg;
+        ActionsTabBtn.Foreground = _currentMode == WheelMode.Actions ? activeFg : inactiveFg;
     }
 
     private void SwitchMode(WheelMode mode)
@@ -60,20 +169,6 @@ public sealed partial class MainPage : Page
         _currentMode = mode;
         _currentSectors = FileProcessorService.GetSectorsForMode(mode, _loadedFiles);
         _selectedSectorIndex = _currentSectors.Count > 0 ? 0 : -1;
-
-        var activeBg = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 250, 204, 21));
-        var activeFg = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 9, 9, 11));
-        var inactiveBg = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 39, 39, 42));
-        var inactiveFg = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 244, 244, 245));
-
-        ConverterTabBtn.Background = mode == WheelMode.Converter ? activeBg : inactiveBg;
-        ConverterTabBtn.Foreground = mode == WheelMode.Converter ? activeFg : inactiveFg;
-
-        ToolsTabBtn.Background = mode == WheelMode.Tools ? activeBg : inactiveBg;
-        ToolsTabBtn.Foreground = mode == WheelMode.Tools ? activeFg : inactiveFg;
-
-        ActionsTabBtn.Background = mode == WheelMode.Actions ? activeBg : inactiveBg;
-        ActionsTabBtn.Foreground = mode == WheelMode.Actions ? activeFg : inactiveFg;
 
         switch (mode)
         {
@@ -97,16 +192,19 @@ public sealed partial class MainPage : Page
                 break;
         }
 
+        UpdateTabButtonStyles(ThemeService.GetCurrentPalette());
         RenderRadialWheel();
     }
 
     private void RenderRadialWheel()
     {
+        var palette = ThemeService.GetCurrentPalette();
+
         WheelCanvas.Children.Clear();
         CenterSizeText.Text = FileProcessorService.FormatTotalSize(_loadedFiles);
         CenterCountText.Text = _loadedFiles.Count == 0
             ? "Drop files here"
-            : $"{_loadedFiles.Count} file{(_loadedFiles.Count == 1 ? "" : "s")} ready";
+            : $"{_loadedFiles.Count} item{(_loadedFiles.Count == 1 ? "" : "s")} ready";
 
         int count = _currentSectors.Count;
         if (count == 0) return;
@@ -129,7 +227,7 @@ public sealed partial class MainPage : Page
             double a0 = startOffset + i * sweepPerSector + (gapDegrees / 2.0);
             double a1 = startOffset + (i + 1) * sweepPerSector - (gapDegrees / 2.0);
 
-            var wedgePath = CreateWedgePath(cx, cy, innerRadius, outerRadius, a0, a1, isSelected);
+            var wedgePath = CreateWedgePath(cx, cy, innerRadius, outerRadius, a0, a1, isSelected, palette);
             wedgePath.PointerEntered += (_, _) =>
             {
                 _selectedSectorIndex = index;
@@ -140,7 +238,6 @@ public sealed partial class MainPage : Page
 
             WheelCanvas.Children.Add(wedgePath);
 
-            // Place icon + label at midpoint of the sector wedge
             double midAngleRad = ((a0 + a1) / 2.0) * Math.PI / 180.0;
             double midRadius = (innerRadius + outerRadius) / 2.0;
             double labelX = cx + midRadius * Math.Cos(midAngleRad);
@@ -157,9 +254,7 @@ public sealed partial class MainPage : Page
             {
                 Glyph = sector.Glyph,
                 FontSize = 16,
-                Foreground = new SolidColorBrush(isSelected
-                    ? Windows.UI.Color.FromArgb(255, 9, 9, 11)
-                    : Windows.UI.Color.FromArgb(255, 250, 204, 21)),
+                Foreground = new SolidColorBrush(isSelected ? palette.TextOnAccent : palette.Accent),
                 HorizontalAlignment = HorizontalAlignment.Center
             });
 
@@ -168,9 +263,7 @@ public sealed partial class MainPage : Page
                 Text = sector.Label,
                 FontSize = 11,
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-                Foreground = new SolidColorBrush(isSelected
-                    ? Windows.UI.Color.FromArgb(255, 9, 9, 11)
-                    : Windows.UI.Color.FromArgb(255, 244, 244, 245)),
+                Foreground = new SolidColorBrush(isSelected ? palette.TextOnAccent : palette.TextPrimary),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextAlignment = TextAlignment.Center
             });
@@ -188,7 +281,7 @@ public sealed partial class MainPage : Page
     }
 
     private static Microsoft.UI.Xaml.Shapes.Path CreateWedgePath(
-        double cx, double cy, double rIn, double rOut, double startDeg, double endDeg, bool isHighlighted)
+        double cx, double cy, double rIn, double rOut, double startDeg, double endDeg, bool isHighlighted, DynamicPalette palette)
     {
         double a0 = startDeg * Math.PI / 180.0;
         double a1 = endDeg * Math.PI / 180.0;
@@ -224,12 +317,8 @@ public sealed partial class MainPage : Page
         return new Microsoft.UI.Xaml.Shapes.Path
         {
             Data = geo,
-            Fill = new SolidColorBrush(isHighlighted
-                ? Windows.UI.Color.FromArgb(255, 250, 204, 21)
-                : Windows.UI.Color.FromArgb(255, 34, 35, 40)),
-            Stroke = new SolidColorBrush(isHighlighted
-                ? Windows.UI.Color.FromArgb(255, 254, 240, 138)
-                : Windows.UI.Color.FromArgb(255, 63, 63, 70)),
+            Fill = new SolidColorBrush(isHighlighted ? palette.Accent : palette.WedgeFill),
+            Stroke = new SolidColorBrush(isHighlighted ? palette.AccentLight2 : palette.WedgeStroke),
             StrokeThickness = 1.5
         };
     }
@@ -247,7 +336,6 @@ public sealed partial class MainPage : Page
         StatusText.Text = $"✅ {result}";
     }
 
-    // Drag & Drop handlers with radial sector hit-testing
     private void Page_DragOver(object sender, DragEventArgs e)
     {
         e.AcceptedOperation = DataPackageOperation.Copy;
@@ -296,16 +384,15 @@ public sealed partial class MainPage : Page
         _loadedFiles.Clear();
         foreach (var item in items)
         {
-            if (item is StorageFile file && !string.IsNullOrEmpty(file.Path))
+            if (!string.IsNullOrEmpty(item.Path))
             {
-                _loadedFiles.Add(file.Path);
+                _loadedFiles.Add(item.Path);
             }
         }
 
         UpdateLoadedFilesSummary();
         SwitchMode(_currentMode);
 
-        // If dropped directly onto a radial wedge, immediately execute that wedge
         Point pt = e.GetPosition(WheelCanvas);
         double dx = pt.X - 190.0;
         double dy = pt.Y - 190.0;
@@ -327,11 +414,10 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        string names = string.Join(", ", _loadedFiles.Select(System.IO.Path.GetFileName));
+        string names = string.Join(", ", _loadedFiles.Select(p => System.IO.Path.GetFileName(p.TrimEnd(System.IO.Path.DirectorySeparatorChar))));
         SelectedFilesSummaryText.Text = $"Loaded ({_loadedFiles.Count}): {names}";
     }
 
-    // Keyboard navigation: Shift, Alt, Ctrl, Arrow keys, Enter, Escape
     private async void Page_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         switch (e.Key)
@@ -339,7 +425,7 @@ public sealed partial class MainPage : Page
             case VirtualKey.Shift:
                 SwitchMode(WheelMode.Converter);
                 break;
-            case VirtualKey.Menu: // Alt key
+            case VirtualKey.Menu:
                 SwitchMode(WheelMode.Tools);
                 break;
             case VirtualKey.Control:
@@ -408,7 +494,7 @@ public sealed partial class MainPage : Page
 
     private async void CreateSampleFile_Click(object sender, RoutedEventArgs e)
     {
-        // Generates a sample 400x400 Lemon test PNG in the user's Pictures/Temp folder so the user can test every tool immediately
+        var palette = ThemeService.GetCurrentPalette();
         string folder = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
         if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
             folder = System.IO.Path.GetTempPath();
@@ -424,9 +510,9 @@ public sealed partial class MainPage : Page
                 double dx = (int)x - 200;
                 double dy = (int)y - 200;
                 bool inCircle = (dx * dx + dy * dy) < 140 * 140;
-                pixels[idx + 0] = inCircle ? (byte)21 : (byte)45;
-                pixels[idx + 1] = inCircle ? (byte)204 : (byte)45;
-                pixels[idx + 2] = inCircle ? (byte)250 : (byte)50;
+                pixels[idx + 0] = inCircle ? palette.Accent.B : (byte)40;
+                pixels[idx + 1] = inCircle ? palette.Accent.G : (byte)42;
+                pixels[idx + 2] = inCircle ? palette.Accent.R : (byte)48;
                 pixels[idx + 3] = 255;
             }
         }
@@ -443,10 +529,9 @@ public sealed partial class MainPage : Page
         _loadedFiles.Add(samplePath);
         UpdateLoadedFilesSummary();
         SwitchMode(_currentMode);
-        StatusText.Text = $"Created & loaded sample image at {samplePath}";
+        StatusText.Text = $"Created & loaded dynamic-accent sample image at {samplePath}";
     }
 
-    // 6-STEP ONBOARDING LOGIC (Matching Tangerine Guide Steps 1-6)
     private void UpdateOnboardingUI()
     {
         OnboardingBackBtn.Visibility = _onboardingStep > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -460,22 +545,22 @@ public sealed partial class MainPage : Page
             case 0:
                 OnboardingStepTag.Text = "Welcome to";
                 OnboardingStepTitle.Text = "LemonAID";
-                OnboardingStepBody.Text = "Contextual radial wheels for instant local file conversion, editing tools, and file actions.";
+                OnboardingStepBody.Text = "Contextual radial wheels with Windows Mica Alt & Dynamic Accent theming.";
                 break;
             case 1:
                 OnboardingStepTag.Text = "Step 2 of 6 · Shift Key Cue";
                 OnboardingStepTitle.Text = "File Converter";
-                OnboardingStepBody.Text = "1. Drag files   2. Tap [Shift] — Choose from PDF, PNG, WEBP, HEIC, TIFF, AVIF or document formats on the conversion wheel.";
+                OnboardingStepBody.Text = "1. Drag or Hold Left-Click on a file   2. Tap [Shift] — Convert to PDF, PNG, WEBP, HEIC, TIFF, AVIF or document formats.";
                 break;
             case 2:
                 OnboardingStepTag.Text = "Step 3 of 6 · Alt Key Cue";
                 OnboardingStepTitle.Text = "File Tools";
-                OnboardingStepBody.Text = "1. Drag files   2. Tap [Alt] — Access Compress, Metadata, Edit, Annotate, Add BG, Crop, and Redact in one radial menu.";
+                OnboardingStepBody.Text = "1. Drag or Hold Left-Click   2. Tap [Alt] — Access Compress, Metadata, Edit, Annotate, Add BG, Crop, and Redact.";
                 break;
             case 3:
                 OnboardingStepTag.Text = "Step 4 of 6 · Ctrl Key Cue";
                 OnboardingStepTitle.Text = "File Actions";
-                OnboardingStepBody.Text = "1. Drag files   2. Tap [Ctrl] — Quickly trigger Nearby Share, Float, Copy, Move, Copy Path, or open Windows Terminal.";
+                OnboardingStepBody.Text = "1. Drag or Hold Left-Click   2. Tap [Ctrl] — Trigger Nearby Share, Float, Copy, Move, Copy Path, or Windows Terminal.";
                 break;
             case 4:
                 OnboardingStepTag.Text = "Step 5 of 6 · Output Behavior";
@@ -487,12 +572,18 @@ public sealed partial class MainPage : Page
             case 5:
                 OnboardingStepTag.Text = "Step 6 of 6 · Startup Preference";
                 OnboardingStepTitle.Text = "Finish setup";
-                OnboardingStepBody.Text = "Choose whether LemonAID launches at login. You can change these options and your shortcuts anytime in Settings.";
+                OnboardingStepBody.Text = "Choose whether LemonAID launches at login. You can customize Mica Alt / Acrylic and shortcuts anytime in Settings.";
                 OnboardingExtraPanel.Visibility = Visibility.Visible;
                 LaunchAtLoginToggle.Visibility = Visibility.Visible;
                 break;
         }
 
+        UpdateOnboardingDots(ThemeService.GetCurrentPalette());
+    }
+
+    private void UpdateOnboardingDots(DynamicPalette palette)
+    {
+        if (ProgressDotsPanel == null) return;
         ProgressDotsPanel.Children.Clear();
         for (int i = 0; i < 6; i++)
         {
@@ -501,8 +592,8 @@ public sealed partial class MainPage : Page
                 Width = 8,
                 Height = 8,
                 Fill = new SolidColorBrush(i == _onboardingStep
-                    ? Windows.UI.Color.FromArgb(255, 9, 9, 11)
-                    : Windows.UI.Color.FromArgb(90, 9, 9, 11))
+                    ? palette.TextOnAccent
+                    : Windows.UI.Color.FromArgb(95, palette.TextOnAccent.R, palette.TextOnAccent.G, palette.TextOnAccent.B))
             });
         }
     }
@@ -540,6 +631,35 @@ public sealed partial class MainPage : Page
     private void OpenSettings_Click(object sender, RoutedEventArgs e) => SettingsOverlay.Visibility = Visibility.Visible;
     private void CloseSettings_Click(object sender, RoutedEventArgs e) => SettingsOverlay.Visibility = Visibility.Collapsed;
 
+    private void BackdropComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (BackdropComboBox == null) return;
+        var pref = BackdropComboBox.SelectedIndex == 1
+            ? BackdropPreference.Acrylic
+            : BackdropPreference.MicaAlt;
+
+        ThemeService.SetBackdropPreference(
+            pref,
+            MainWindow.CurrentInstance,
+            MainWindow.CurrentInstance?.OverlayWindowInstance);
+    }
+
+    private void ThemeModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ThemeModeComboBox == null) return;
+        ElementTheme theme = ThemeModeComboBox.SelectedIndex switch
+        {
+            1 => ElementTheme.Dark,
+            2 => ElementTheme.Light,
+            _ => ElementTheme.Default
+        };
+
+        ThemeService.SetThemeOverride(
+            theme,
+            MainWindow.CurrentInstance,
+            MainWindow.CurrentInstance?.OverlayWindowInstance);
+    }
+
     private async void SelectCustomFolder_Click(object sender, RoutedEventArgs e)
     {
         var picker = new FolderPicker();
@@ -553,7 +673,8 @@ public sealed partial class MainPage : Page
         StorageFolder? folder = await picker.PickSingleFolderAsync();
         if (folder != null)
         {
-            CurrentCustomOutputFolder = _customOutputFolder = folder.Path;
+            _customOutputFolder = folder.Path;
+            CurrentCustomOutputFolder = _customOutputFolder;
             OutputModeBadge.Text = $"Output: {folder.Name}";
             SettingsFolderStatusText.Text = $"Saving results to: {_customOutputFolder}";
             StatusText.Text = $"Updated output folder to {_customOutputFolder}";
@@ -562,7 +683,8 @@ public sealed partial class MainPage : Page
 
     private void ResetOutputFolder_Click(object sender, RoutedEventArgs e)
     {
-        CurrentCustomOutputFolder = _customOutputFolder = null;
+        _customOutputFolder = null;
+        CurrentCustomOutputFolder = null;
         OutputModeBadge.Text = "Output: Beside Originals";
         SettingsFolderStatusText.Text = "Default: Results are saved next to the originals.";
         StatusText.Text = "Output location reset to save beside original files.";

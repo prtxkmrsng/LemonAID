@@ -5,18 +5,21 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="LemonAID Overlay">
 
+    <Window.SystemBackdrop>
+        <DesktopAcrylicBackdrop />
+    </Window.SystemBackdrop>
+
     <Grid x:Name="RootGrid"
           Width="380" Height="380"
-          Background="#141518"
+          Background="Transparent"
           AllowDrop="True"
           DragOver="RootGrid_DragOver"
           Drop="RootGrid_Drop">
 
-        <!-- Outer Lemon Ring -->
-        <Ellipse Width="376" Height="376"
-                 Fill="#18191D"
-                 Stroke="#FACC15"
-                 StrokeThickness="3"
+        <!-- Outer Translucent Ring with Dynamic Accent Border -->
+        <Ellipse x:Name="OuterRingEllipse"
+                 Width="376" Height="376"
+                 StrokeThickness="2.5"
                  HorizontalAlignment="Center"
                  VerticalAlignment="Center" />
 
@@ -24,19 +27,20 @@
         <Canvas x:Name="OverlayWheelCanvas" Width="380" Height="380" />
 
         <!-- Center Info Hub -->
-        <Border Width="122" Height="122" CornerRadius="61"
-                Background="#111215" BorderBrush="#FACC15" BorderThickness="2"
+        <Border x:Name="CenterHubBorder"
+                Width="122" Height="122" CornerRadius="61"
+                BorderThickness="2"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
                 IsHitTestVisible="False">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2" Padding="8">
                 <TextBlock x:Name="OverlayModeBadge" Text="SHIFT · CONVERT"
-                           FontSize="9" FontWeight="Bold" Foreground="#FACC15"
+                           FontSize="9" FontWeight="Bold"
                            HorizontalAlignment="Center" />
                 <TextBlock x:Name="OverlaySizeText" Text="2.4 MB"
-                           FontSize="17" FontWeight="Bold" Foreground="#FAFAFA"
+                           FontSize="17" FontWeight="Bold"
                            HorizontalAlignment="Center" />
                 <TextBlock x:Name="OverlayTargetText" Text="Release on wedge"
-                           FontSize="10" Foreground="#A1A1AA"
+                           FontSize="10"
                            HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="100" />
             </StackPanel>
         </Border>

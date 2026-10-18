@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using LemonAID.Services;
@@ -13,7 +12,6 @@ using Microsoft.UI.Xaml.Shapes;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Graphics;
-using Windows.Storage;
 using WinRT.Interop;
 
 namespace LemonAID;
@@ -38,6 +36,9 @@ public sealed partial class RadialOverlayWindow : Window
     {
         InitializeComponent();
         _hwnd = WindowNative.GetWindowHandle(this);
+
+        ThemeService.ApplyBackdropToWindow(this, isTransientOverlay: true);
+        ThemeService.PaletteChanged += _ => RenderWedges();
 
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -72,7 +73,6 @@ public sealed partial class RadialOverlayWindow : Window
 
         AppWindow.MoveAndResize(new RectInt32(left, top, physDiameter, physDiameter));
 
-        // Clip window to a true circle so there are no rectangular corners
         IntPtr hRgn = CreateEllipticRgn(0, 0, physDiameter, physDiameter);
         SetWindowRgn(_hwnd, hRgn, true);
 
@@ -140,7 +140,6 @@ public sealed partial class RadialOverlayWindow : Window
         }
         else if (_activePaths.Count > 0)
         {
-            // Released inside center hub or outside wheel -> cancel
             DismissOverlay();
         }
     }
@@ -176,6 +175,18 @@ public sealed partial class RadialOverlayWindow : Window
 
     private void RenderWedges()
     {
+        var palette = ThemeService.GetCurrentPalette();
+
+        OuterRingEllipse.Fill = new SolidColorBrush(palette.WheelRingFill);
+        OuterRingEllipse.Stroke = new SolidColorBrush(palette.Accent);
+
+        CenterHubBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
+        CenterHubBorder.BorderBrush = new SolidColorBrush(palette.Accent);
+
+        OverlayModeBadge.Foreground = new SolidColorBrush(palette.Accent);
+        OverlaySizeText.Foreground = new SolidColorBrush(palette.TextPrimary);
+        OverlayTargetText.Foreground = new SolidColorBrush(palette.TextSecondary);
+
         OverlayWheelCanvas.Children.Clear();
         int count = _sectors.Count;
         if (count == 0) return;
@@ -198,7 +209,7 @@ public sealed partial class RadialOverlayWindow : Window
             double a0 = startOffset + i * sweep + (gapDeg / 2.0);
             double a1 = startOffset + (i + 1) * sweep - (gapDeg / 2.0);
 
-            var path = BuildWedgePath(cx, cy, rIn, rOut, a0, a1, isSelected);
+            var path = BuildWedgePath(cx, cy, rIn, rOut, a0, a1, isSelected, palette);
             path.PointerPressed += async (_, _) =>
             {
                 _selectedSectorIndex = idx;
@@ -222,9 +233,7 @@ public sealed partial class RadialOverlayWindow : Window
             {
                 Glyph = sector.Glyph,
                 FontSize = 15,
-                Foreground = new SolidColorBrush(isSelected
-                    ? Windows.UI.Color.FromArgb(255, 9, 9, 11)
-                    : Windows.UI.Color.FromArgb(255, 250, 204, 21)),
+                Foreground = new SolidColorBrush(isSelected ? palette.TextOnAccent : palette.Accent),
                 HorizontalAlignment = HorizontalAlignment.Center
             });
 
@@ -233,9 +242,7 @@ public sealed partial class RadialOverlayWindow : Window
                 Text = sector.Label,
                 FontSize = 11,
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-                Foreground = new SolidColorBrush(isSelected
-                    ? Windows.UI.Color.FromArgb(255, 9, 9, 11)
-                    : Windows.UI.Color.FromArgb(255, 244, 244, 245)),
+                Foreground = new SolidColorBrush(isSelected ? palette.TextOnAccent : palette.TextPrimary),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextAlignment = TextAlignment.Center
             });
@@ -247,7 +254,7 @@ public sealed partial class RadialOverlayWindow : Window
     }
 
     private static Microsoft.UI.Xaml.Shapes.Path BuildWedgePath(
-        double cx, double cy, double rIn, double rOut, double startDeg, double endDeg, bool isSelected)
+        double cx, double cy, double rIn, double rOut, double startDeg, double endDeg, bool isSelected, DynamicPalette palette)
     {
         double a0 = startDeg * Math.PI / 180.0;
         double a1 = endDeg * Math.PI / 180.0;
@@ -281,17 +288,12 @@ public sealed partial class RadialOverlayWindow : Window
         return new Microsoft.UI.Xaml.Shapes.Path
         {
             Data = geo,
-            Fill = new SolidColorBrush(isSelected
-                ? Windows.UI.Color.FromArgb(255, 250, 204, 21)
-                : Windows.UI.Color.FromArgb(255, 34, 35, 40)),
-            Stroke = new SolidColorBrush(isSelected
-                ? Windows.UI.Color.FromArgb(255, 254, 240, 138)
-                : Windows.UI.Color.FromArgb(255, 63, 63, 70)),
+            Fill = new SolidColorBrush(isSelected ? palette.Accent : palette.WedgeFill),
+            Stroke = new SolidColorBrush(isSelected ? palette.AccentLight2 : palette.WedgeStroke),
             StrokeThickness = 1.5
         };
     }
 
-    // Native OLE Drag & Drop support when dragging files directly from Explorer into the overlay
     private void RootGrid_DragOver(object sender, DragEventArgs e)
     {
         e.AcceptedOperation = DataPackageOperation.Copy;

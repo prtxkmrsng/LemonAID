@@ -10,8 +10,8 @@
     Title="LemonAID">
 
     <Window.SystemBackdrop>
-        <MicaBackdrop />
+        <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <Frame x:Name="RootFrame" />
+    <Frame x:Name="RootFrame" Background="Transparent" />
 </Window>
