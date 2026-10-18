@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "LemonAID (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "LemonAID (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
