@@ -56,6 +56,22 @@ public static class BackgroundSettingsService
         return Current;
     }
 
+    /// <summary>
+    /// Returns true ONLY on the very first launch after installation, and immediately
+    /// persists OnboardingCompleted = true so onboarding never appears again on future launches.
+    /// </summary>
+    public static bool ConsumeFirstLaunchOnboarding()
+    {
+        if (Current.OnboardingCompleted)
+        {
+            return false;
+        }
+
+        Current.OnboardingCompleted = true;
+        Save();
+        return true;
+    }
+
     public static void Save()
     {
         try

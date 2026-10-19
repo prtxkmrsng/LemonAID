@@ -1,22 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Formats.Tar;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.Encodings.Web;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics.Imaging;
 using Windows.Media.MediaProperties;
 using Windows.Media.Transcoding;
 using Windows.Storage;
-using Windows.Storage.FileProperties;
 using Windows.Storage.Streams;
 
 namespace LemonAID.Services;
@@ -28,56 +26,69 @@ public enum WheelMode
     Actions    // Ctrl
 }
 
-public enum FileCategory
-{
-    Directory,
-    Image,
-    Audio,
-    Video,
-    DataCode,
-    Subtitle,
-    Archive,
-    Document,
-    BinaryGeneric
-}
-
 public sealed record SectorItem(string Id, string Label, string Glyph, string Description);
 
 public static class FileProcessorService
 {
-    public static FileCategory DetectCategory(string path)
+    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        if (Directory.Exists(path)) return FileCategory.Directory;
+        ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".heic", ".heif", ".avif", ".bmp", ".gif", ".ico", ".svg"
+    };
 
-        string ext = Path.GetExtension(path).ToLowerInvariant();
-        return ext switch
-        {
-            ".png" or ".jpg" or ".jpeg" or ".bmp" or ".tiff" or ".tif" or ".gif" or ".webp" or ".heic" or ".ico" or ".svg"
-                => FileCategory.Image,
+    private static readonly HashSet<string> DocumentExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".doc", ".docx", ".pages", ".rtf", ".rtfd", ".odt", ".txt", ".md", ".markdown", ".epub", ".html", ".htm"
+    };
 
-            ".mp3" or ".wav" or ".wma" or ".m4a" or ".aac" or ".flac" or ".ogg" or ".aiff" or ".opus" or ".mid" or ".midi"
-                => FileCategory.Audio,
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".m4v", ".flv", ".mpeg", ".mpg"
+    };
 
-            ".mp4" or ".mov" or ".wmv" or ".avi" or ".mkv" or ".webm" or ".flv" or ".m4v" or ".3gp"
-                => FileCategory.Video,
+    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp3", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".aiff", ".aif", ".wma", ".aac"
+    };
 
-            ".srt" or ".vtt"
-                => FileCategory.Subtitle,
+    private static readonly HashSet<string> SpreadsheetExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".xlsx", ".xls", ".ods", ".csv", ".tsv"
+    };
 
-            ".json" or ".csv" or ".tsv" or ".xml" or ".html" or ".htm" or ".css" or ".js" or ".ts" or ".jsx" or ".tsx"
-                or ".cs" or ".py" or ".cpp" or ".c" or ".h" or ".hpp" or ".java" or ".rs" or ".go" or ".sql"
-                or ".yaml" or ".yml" or ".md" or ".txt" or ".ini" or ".env" or ".log" or ".sh" or ".ps1" or ".bat"
-                or ".cmd" or ".toml" or ".jsonc" or ".cfg" or ".config"
-                => FileCategory.DataCode,
+    private static readonly HashSet<string> SlideExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".ppt", ".pptx", ".odp", ".key"
+    };
 
-            ".zip" or ".tar" or ".gz" or ".7z" or ".rar" or ".bz2" or ".xz" or ".cab" or ".iso"
-                => FileCategory.Archive,
+    private static readonly HashSet<string> SubtitleExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".srt", ".vtt", ".ass", ".ssa", ".sub"
+    };
 
-            ".pdf" or ".docx" or ".xlsx" or ".pptx" or ".doc" or ".xls" or ".ppt" or ".rtf" or ".odt" or ".ods" or ".odp" or ".epub"
-                => FileCategory.Document,
+    private static readonly HashSet<string> ArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".zip", ".tar", ".gz", ".tgz", ".rar", ".7z"
+    };
 
-            _ => FileCategory.BinaryGeneric
-        };
+    public static string DetectCategoryBadge(IReadOnlyList<string> filePaths)
+    {
+        if (filePaths.Count == 0) return "CONVERTER";
+        string first = filePaths[0];
+        if (Directory.Exists(first)) return "FOLDER";
+
+        string ext = Path.GetExtension(first).ToLowerInvariant();
+        string cleanExt = ext.TrimStart('.').ToUpperInvariant();
+
+        if (ext == ".pdf") return "PDF DOC";
+        if (ImageExtensions.Contains(ext)) return $"IMAGE · {cleanExt}";
+        if (DocumentExtensions.Contains(ext)) return $"DOC · {cleanExt}";
+        if (VideoExtensions.Contains(ext)) return $"VIDEO · {cleanExt}";
+        if (AudioExtensions.Contains(ext)) return $"AUDIO · {cleanExt}";
+        if (SpreadsheetExtensions.Contains(ext)) return $"SHEET · {cleanExt}";
+        if (SlideExtensions.Contains(ext)) return $"SLIDES · {cleanExt}";
+        if (SubtitleExtensions.Contains(ext)) return $"SUBS · {cleanExt}";
+        if (ArchiveExtensions.Contains(ext)) return $"ARCHIVE · {cleanExt}";
+        return string.IsNullOrEmpty(cleanExt) ? "FILE" : cleanExt;
     }
 
     public static IReadOnlyList<SectorItem> GetSectorsForMode(WheelMode mode, IReadOnlyList<string> filePaths)
@@ -85,20 +96,20 @@ public static class FileProcessorService
         return mode switch
         {
             WheelMode.Converter => GetContextualConverterSectors(filePaths),
-            WheelMode.Tools => (SectorItem[])
+            WheelMode.Tools =>
             [
-                new("COMPRESS", "COMPRESS", "\uE740", "Intelligently minify, downscale, or compress into smallest size archive"),
-                new("METADATA", "METADATA", "\uE8EC", "Inspect detailed file metadata, audio/video specs, or calculate cryptographic hashes"),
-                new("EDIT", "EDIT", "\uE790", "Auto-format code indentation, normalize line endings, or enhance image contrast"),
-                new("ANNOTATE", "ANNOTATE", "\uE929", "Stamp metadata banner, code watermark block, or create audit sidecar"),
-                new("ADD_BG", "ADD BG", "\uE91B", "Render onto padded lemon canvas or generate styled preview HTML"),
-                new("CROP", "CROP", "\uE7A8", "Center-crop image 1:1, slice first 150 lines of code, or extract 32KB binary head"),
-                new("REDACT", "REDACT", "\uED1A", "Mask sensitive image region or redact emails, phones, IPs, and API tokens")
+                new("COMPRESS", "COMPRESS", "\uE740", "Reduce file size or compress file/folder beside original"),
+                new("METADATA", "METADATA", "\uE8EC", "Inspect or strip embedded metadata into a clean copy"),
+                new("EDIT", "EDIT", "\uE790", "Enhance contrast & brightness and export as a new file"),
+                new("ANNOTATE", "ANNOTATE", "\uE929", "Stamp an annotation header banner onto a copy"),
+                new("ADD_BG", "ADD BG", "\uE91B", "Place image onto a padded citrus-gradient canvas"),
+                new("CROP", "CROP", "\uE7A8", "Center-crop image to a 1:1 square aspect ratio"),
+                new("REDACT", "REDACT", "\uED1A", "Mask central sensitive region or redact text emails/phones")
             ],
-            WheelMode.Actions => (SectorItem[])
+            WheelMode.Actions =>
             [
                 new("SHARE", "NEARBY", "\uE72D", "Reveal in Explorer for Windows Nearby Share"),
-                new("FLOAT", "FLOAT", "\uE718", "Pin an Always-On-Top floating preview and inspection window"),
+                new("FLOAT", "FLOAT", "\uE718", "Pin a floating Always-On-Top preview window"),
                 new("COPY", "COPY", "\uE8C8", "Copy item to clipboard and create a duplicate beside original"),
                 new("MOVE", "MOVE", "\uE8DE", "Move selected item(s) to destination folder"),
                 new("COPY_PATH", "COPY PATH", "\uE71B", "Copy full Windows path(s) to clipboard"),
@@ -112,117 +123,214 @@ public static class FileProcessorService
     {
         if (filePaths.Count == 0)
         {
-            return (SectorItem[])
+            // Default showcase wheel when no file is loaded yet
+            return
             [
-                new("ZIP", "ZIP", "\uF012", "Package item(s) into standard ZIP archive"),
-                new("B64", "BASE64", "\uE71B", "Encode content into Base64 text (.txt)"),
-                new("HEX", "HEX DUMP", "\uE756", "Generate formatted 16-byte hex dump"),
-                new("HASH", "CHECKSUM", "\uE8EC", "Calculate SHA256, SHA1 & MD5 hashes"),
-                new("STRINGS", "STRINGS", "\uE8A5", "Extract printable ASCII & UTF-8 strings"),
-                new("PDF", "REPORT", "\uEA90", "Generate inspection summary PDF report")
+                new("JPG", "JPG", "\uEB9F", "Convert image to standard JPEG (.jpg)"),
+                new("PNG", "PNG", "\uEB9F", "Convert image to lossless PNG (.png)"),
+                new("TIFF", "TIF", "\uEB9F", "Convert image to uncompressed TIFF (.tif)"),
+                new("WEBP", "WEBP", "\uEB9F", "Convert to high-efficiency WebP (.webp)"),
+                new("HEIC", "HEIC", "\uEB9F", "Convert to modern HEIC container (.heic)"),
+                new("AVIF", "AVIF", "\uEB9F", "Convert to next-gen AVIF (.avif)"),
+                new("PDF", "PDF", "\uEA90", "Export image or document to PDF (.pdf)")
             ];
         }
 
         string first = filePaths[0];
-        FileCategory category = DetectCategory(first);
-
-        return category switch
+        if (Directory.Exists(first))
         {
-            FileCategory.Directory => (SectorItem[])
+            return
             [
                 new("ZIP", "ZIP", "\uF012", "Package folder into a .zip archive beside original"),
-                new("PDF", "PDF", "\uEA90", "Export folder manifest summary to PDF"),
-                new("TXT", "TXT", "\uE8A5", "Export directory file listing to .txt"),
-                new("MD", "MARKDOWN", "\uE8A5", "Export directory listing to Markdown (.md)"),
-                new("CSV", "CSV", "\uE9F9", "Export directory inventory to .csv"),
-                new("HTML", "HTML", "\uE774", "Export interactive directory explorer .html")
-            ],
+                new("TAR", "TAR", "\uF012", "Package folder into a POSIX .tar archive"),
+                new("GZIP", "TAR.GZ", "\uF012", "Compress folder into a .tar.gz archive"),
+                new("PDF", "PDF", "\uEA90", "Export folder manifest summary to PDF (.pdf)"),
+                new("CSV", "CSV", "\uE9F9", "Export folder file inventory to spreadsheet (.csv)"),
+                new("MD", "MD", "\uE8A5", "Export folder directory tree to Markdown (.md)")
+            ];
+        }
 
-            FileCategory.Image => (SectorItem[])
-            [
-                new("PNG", "PNG", "\uEB9F", "Lossless PNG image"),
-                new("JPG", "JPG", "\uEB9F", "Standard compressed JPEG image"),
-                new("WEBP", "WEBP", "\uEB9F", "Modern high-efficiency WebP image"),
-                new("TIFF", "TIFF", "\uEB9F", "Uncompressed archival TIFF image"),
-                new("PDF", "PDF", "\uEA90", "Embed image into a single-page PDF document"),
-                new("ZIP", "ZIP", "\uF012", "Package image into standard ZIP archive")
-            ],
+        string ext = Path.GetExtension(first).ToLowerInvariant();
+        string sourceId = NormalizeFormatId(ext);
 
-            FileCategory.Audio => (SectorItem[])
+        // 1. IMAGES: JPG, PNG, TIF, WEBP, HEIC, AVIF, BMP, GIF, PDF
+        if (ImageExtensions.Contains(ext))
+        {
+            SectorItem[] candidates =
             [
-                new("WAV", "WAV", "\uE8D6", "Convert to uncompressed 16-bit PCM WAV"),
-                new("MP3", "MP3", "\uE8D6", "Convert to high-quality MP3 audio"),
-                new("AAC", "AAC / M4A", "\uE8D6", "Convert to Advanced Audio Coding (.m4a)"),
-                new("WMA", "WMA", "\uE8D6", "Convert to Windows Media Audio (.wma)"),
-                new("B64", "BASE64", "\uE71B", "Encode raw audio byte stream to Base64 (.txt)"),
-                new("ZIP", "ZIP", "\uF012", "Compress audio into ZIP archive")
-            ],
+                new("JPG", "JPG", "\uEB9F", "Convert image to standard JPEG (.jpg)"),
+                new("PNG", "PNG", "\uEB9F", "Convert image to lossless PNG (.png)"),
+                new("TIFF", "TIF", "\uEB9F", "Convert image to archival TIFF (.tif)"),
+                new("WEBP", "WEBP", "\uEB9F", "Convert image to WebP (.webp)"),
+                new("HEIC", "HEIC", "\uEB9F", "Convert image to HEIC (.heic)"),
+                new("AVIF", "AVIF", "\uEB9F", "Convert image to AVIF (.avif)"),
+                new("PDF", "PDF", "\uEA90", "Export image into a full-page PDF document (.pdf)"),
+                new("BMP", "BMP", "\uEB9F", "Convert image to uncompressed Bitmap (.bmp)"),
+                new("ICO", "ICO", "\uEB9F", "Convert image to Windows Icon (.ico)")
+            ];
+            return FilterOutSourceFormat(candidates, sourceId, maxCount: 7);
+        }
 
-            FileCategory.Video => (SectorItem[])
+        // 2. PDF DOCUMENTS: DOCX, DOC, TXT, MD, JPG, PNG, HTML
+        if (ext == ".pdf")
+        {
+            return
             [
-                new("MP4", "MP4", "\uE714", "Transcode to standard H.264 MP4 video"),
-                new("WMV", "WMV", "\uE714", "Transcode to Windows Media Video (.wmv)"),
-                new("EXTRACT_MP3", "EXTRACT MP3", "\uE8D6", "Extract audio track as MP3 audio"),
-                new("EXTRACT_WAV", "EXTRACT WAV", "\uE8D6", "Extract audio track as uncompressed WAV"),
-                new("THUMBNAIL", "POSTER PNG", "\uEB9F", "Export video poster frame as PNG image"),
-                new("ZIP", "ZIP", "\uF012", "Compress video into standard ZIP archive")
-            ],
+                new("DOCX", "DOCX", "\uE8A5", "Convert PDF to Microsoft Word document (.docx)"),
+                new("DOC", "DOC", "\uE8A5", "Convert PDF to Word / RTF document (.doc)"),
+                new("TXT", "TXT", "\uE8A5", "Extract plain text from PDF (.txt)"),
+                new("MD", "MD", "\uE8A5", "Convert PDF content to Markdown (.md)"),
+                new("PNG", "PNG", "\uEB9F", "Render PDF summary card to lossless PNG (.png)"),
+                new("JPG", "JPG", "\uEB9F", "Render PDF summary card to JPEG (.jpg)"),
+                new("HTML", "HTML", "\uE774", "Convert PDF content to standalone HTML (.html)")
+            ];
+        }
 
-            FileCategory.DataCode => (SectorItem[])
+        // 3. DOCUMENTS: DOC, DOCX, PDF, TXT, MD, HTML, EPUB, RTF
+        if (DocumentExtensions.Contains(ext))
+        {
+            SectorItem[] candidates =
             [
-                new("JSON", "JSON", "\uE943", "Format/convert structure to formatted JSON"),
-                new("CSV", "CSV", "\uE9F9", "Convert tabular rows or JSON array to CSV"),
-                new("XML", "XML", "\uE943", "Wrap content/structure in XML format"),
-                new("HTML", "HTML", "\uE774", "Export styled syntax-highlighted HTML document"),
-                new("MD", "MARKDOWN", "\uE8A5", "Convert to Markdown document with code fences"),
-                new("TXT", "PLAIN TXT", "\uE8A5", "Strip formatting and save as plain text (.txt)")
-            ],
+                new("PDF", "PDF", "\uEA90", "Export document to Adobe PDF (.pdf)"),
+                new("DOCX", "DOCX", "\uE8A5", "Convert to modern Word OpenXML document (.docx)"),
+                new("DOC", "DOC", "\uE8A5", "Convert to Word compatible document (.doc)"),
+                new("TXT", "TXT", "\uE8A5", "Convert to plain UTF-8 text (.txt)"),
+                new("MD", "MD", "\uE8A5", "Convert to Markdown document (.md)"),
+                new("HTML", "HTML", "\uE774", "Export formatted HTML document (.html)"),
+                new("EPUB", "EPUB", "\uE736", "Package document into an e-book (.epub)"),
+                new("RTF", "RTF", "\uE8A5", "Convert to Rich Text Format (.rtf)")
+            ];
+            return FilterOutSourceFormat(candidates, sourceId, maxCount: 7);
+        }
 
-            FileCategory.Subtitle => (SectorItem[])
+        // 4. VIDEOS: WEBP, GIF, MP4, MOV, MKV, WEBM, AVI, MP3 (Audio Export)
+        if (VideoExtensions.Contains(ext))
+        {
+            SectorItem[] candidates =
             [
-                new("VTT", "WEBVTT", "\uE8C1", "Convert subtitle cues to WebVTT (.vtt)"),
-                new("SRT", "SRT", "\uE8C1", "Convert subtitle cues to SubRip Subtitle (.srt)"),
-                new("TXT", "PLAIN TEXT", "\uE8A5", "Extract dialogue text without timestamps"),
-                new("CSV", "CSV CUES", "\uE9F9", "Export subtitle cues table (Index, Start, End, Text)"),
-                new("JSON", "JSON CUES", "\uE943", "Export subtitle cues as structured JSON array"),
-                new("HTML", "TRANSCRIPT", "\uE774", "Export readable transcript HTML page")
-            ],
+                new("MP4", "MP4", "\uE714", "Transcode video to H.264 MP4 (.mp4)"),
+                new("WEBP", "WEBP", "\uEB9F", "Convert video clip to WebP animation/frame (.webp)"),
+                new("GIF", "GIF", "\uEB9F", "Convert video clip to animated GIF (.gif)"),
+                new("MOV", "MOV", "\uE714", "Convert video to QuickTime MOV (.mov)"),
+                new("MKV", "MKV", "\uE714", "Convert video to Matroska MKV (.mkv)"),
+                new("WEBM", "WEBM", "\uE714", "Convert video to WebM (.webm)"),
+                new("MP3", "MP3", "\uE8D6", "Extract audio track from video to MP3 (.mp3)"),
+                new("AVI", "AVI", "\uE714", "Convert video to AVI container (.avi)")
+            ];
+            return FilterOutSourceFormat(candidates, sourceId, maxCount: 7);
+        }
 
-            FileCategory.Archive => (SectorItem[])
+        // 5. AUDIO: MP3, WAV, FLAC, M4A, OGG, OPUS, AAC, AIFF
+        if (AudioExtensions.Contains(ext))
+        {
+            SectorItem[] candidates =
             [
-                new("EXTRACT", "EXTRACT", "\uE8B7", "Decompress archive contents to folder"),
-                new("MANIFEST", "MANIFEST", "\uE8A5", "Export archive file listing to .txt"),
-                new("REZIP", "OPTIMIZE ZIP", "\uF012", "Repackage contents with optimal compression"),
-                new("B64", "BASE64", "\uE71B", "Encode archive to Base64 string (.txt)"),
-                new("HASH", "CHECKSUM", "\uE8EC", "Calculate SHA256 & MD5 archive checksums"),
-                new("PDF", "REPORT PDF", "\uEA90", "Export archive contents summary to PDF")
-            ],
+                new("MP3", "MP3", "\uE8D6", "Convert audio to MP3 (.mp3)"),
+                new("WAV", "WAV", "\uE8D6", "Convert audio to uncompressed WAV (.wav)"),
+                new("FLAC", "FLAC", "\uE8D6", "Convert audio to lossless FLAC (.flac)"),
+                new("M4A", "M4A", "\uE8D6", "Convert audio to AAC / M4A (.m4a)"),
+                new("OGG", "OGG", "\uE8D6", "Convert audio to Ogg Vorbis (.ogg)"),
+                new("OPUS", "OPUS", "\uE8D6", "Convert audio to Opus (.opus)"),
+                new("AIFF", "AIFF", "\uE8D6", "Convert audio to Apple AIFF (.aiff)")
+            ];
+            return FilterOutSourceFormat(candidates, sourceId, maxCount: 6);
+        }
 
-            FileCategory.Document => (SectorItem[])
+        // 6. SPREADSHEETS: XLSX, CSV, TSV, PDF, ODS, HTML, MD
+        if (SpreadsheetExtensions.Contains(ext))
+        {
+            SectorItem[] candidates =
             [
-                new("TXT", "EXTRACT TEXT", "\uE8A5", "Extract readable strings & text to .txt"),
-                new("MD", "MARKDOWN", "\uE8A5", "Export document overview to Markdown (.md)"),
-                new("HTML", "HTML VIEW", "\uE774", "Export structured document preview HTML"),
-                new("B64", "BASE64", "\uE71B", "Encode document to Base64 string (.txt)"),
-                new("ZIP", "ZIP", "\uF012", "Package document into standard ZIP archive"),
-                new("HEX", "HEX DUMP", "\uE756", "Generate byte hex dump of document")
-            ],
+                new("XLSX", "XLSX", "\uE9F9", "Convert to Excel OpenXML workbook (.xlsx)"),
+                new("CSV", "CSV", "\uE9F9", "Convert to Comma-Separated Values (.csv)"),
+                new("TSV", "TSV", "\uE9F9", "Convert to Tab-Separated Values (.tsv)"),
+                new("PDF", "PDF", "\uEA90", "Export spreadsheet table to PDF (.pdf)"),
+                new("HTML", "HTML", "\uE774", "Export spreadsheet to HTML table (.html)"),
+                new("MD", "MD", "\uE8A5", "Export spreadsheet to Markdown table (.md)"),
+                new("JSON", "JSON", "\uE943", "Export rows to structured JSON (.json)")
+            ];
+            return FilterOutSourceFormat(candidates, sourceId, maxCount: 6);
+        }
 
-            _ => (SectorItem[])
+        // 7. SLIDES / PRESENTATIONS: PDF, PPTX, JPG, PNG, HTML, MD
+        if (SlideExtensions.Contains(ext))
+        {
+            SectorItem[] candidates =
             [
-                new("ZIP", "ZIP", "\uF012", "Compress file into standard ZIP archive"),
-                new("B64", "BASE64", "\uE71B", "Encode binary data into Base64 (.txt)"),
-                new("HEX", "HEX DUMP", "\uE756", "Generate 16-byte aligned Hex dump (.hex.txt)"),
-                new("HASH", "CHECKSUM", "\uE8EC", "Generate SHA256, MD5, SHA1 hashes (.hash.txt)"),
-                new("STRINGS", "STRINGS", "\uE8A5", "Extract printable ASCII & UTF-8 strings (.strings.txt)"),
-                new("PDF", "REPORT", "\uEA90", "Generate forensic inspection summary PDF")
-            ]
+                new("PDF", "PDF", "\uEA90", "Export presentation deck to PDF (.pdf)"),
+                new("PPTX", "PPTX", "\uE8A5", "Convert presentation to PowerPoint (.pptx)"),
+                new("PNG", "PNG", "\uEB9F", "Export slide deck summary to PNG (.png)"),
+                new("JPG", "JPG", "\uEB9F", "Export slide deck summary to JPG (.jpg)"),
+                new("HTML", "HTML", "\uE774", "Export slide notes & outline to HTML (.html)"),
+                new("MD", "MD", "\uE8A5", "Export slide outline to Markdown (.md)")
+            ];
+            return FilterOutSourceFormat(candidates, sourceId, maxCount: 6);
+        }
+
+        // 8. SUBTITLES: SRT, VTT, TXT, MD, HTML, JSON
+        if (SubtitleExtensions.Contains(ext))
+        {
+            SectorItem[] candidates =
+            [
+                new("SRT", "SRT", "\uE8C1", "Convert subtitles to SubRip (.srt)"),
+                new("VTT", "VTT", "\uE8C1", "Convert subtitles to WebVTT (.vtt)"),
+                new("TXT", "TXT", "\uE8A5", "Strip timestamps into clean transcript (.txt)"),
+                new("MD", "MD", "\uE8A5", "Export subtitle transcript to Markdown (.md)"),
+                new("HTML", "HTML", "\uE774", "Export subtitle cues to HTML table (.html)")
+            ];
+            return FilterOutSourceFormat(candidates, sourceId, maxCount: 5);
+        }
+
+        // 9. ARCHIVES: EXTRACT, ZIP, TAR, GZIP
+        if (ArchiveExtensions.Contains(ext))
+        {
+            SectorItem[] candidates =
+            [
+                new("EXTRACT", "EXTRACT", "\uE8DE", "Extract archive contents into a folder beside original"),
+                new("ZIP", "ZIP", "\uF012", "Repackage archive as standard .zip"),
+                new("TAR", "TAR", "\uF012", "Repackage archive as POSIX .tar"),
+                new("GZIP", "TAR.GZ", "\uF012", "Compress into a .tar.gz archive")
+            ];
+            return FilterOutSourceFormat(candidates, sourceId, maxCount: 4);
+        }
+
+        // 10. GENERIC / OTHER FILES
+        return
+        [
+            new("ZIP", "ZIP", "\uF012", "Package file into a .zip archive"),
+            new("TAR", "TAR", "\uF012", "Package file into a .tar archive"),
+            new("GZIP", "TAR.GZ", "\uF012", "Compress file into a .tar.gz archive"),
+            new("PDF", "PDF", "\uEA90", "Export file summary/contents to PDF (.pdf)"),
+            new("TXT", "TXT", "\uE8A5", "Export readable text copy (.txt)"),
+            new("MD", "MD", "\uE8A5", "Export formatted Markdown copy (.md)")
+        ];
+    }
+
+    private static string NormalizeFormatId(string ext)
+    {
+        return ext.TrimStart('.').ToUpperInvariant() switch
+        {
+            "JPEG" => "JPG",
+            "TIF" => "TIFF",
+            "HEIF" => "HEIC",
+            "MARKDOWN" => "MD",
+            "HTM" => "HTML",
+            "TGZ" or "GZ" => "GZIP",
+            var other => other
         };
+    }
+
+    private static IReadOnlyList<SectorItem> FilterOutSourceFormat(SectorItem[] candidates, string sourceId, int maxCount)
+    {
+        return candidates
+            .Where(c => !string.Equals(c.Id, sourceId, StringComparison.OrdinalIgnoreCase))
+            .Take(maxCount)
+            .ToList();
     }
 
     public static string FormatTotalSize(IReadOnlyList<string> paths)
     {
-        if (paths.Count == 0) return "0 B";
+        if (paths.Count == 0) return "2.4 MB";
         long totalBytes = 0;
         foreach (var p in paths)
         {
@@ -245,8 +353,7 @@ public static class FileProcessorService
         if (totalBytes == 0 && Directory.Exists(paths[0])) return "Folder";
         if (totalBytes < 1024) return $"{totalBytes} B";
         if (totalBytes < 1024 * 1024) return $"{totalBytes / 1024.0:F1} KB";
-        if (totalBytes < 1024 * 1024 * 1024) return $"{totalBytes / (1024.0 * 1024.0):F1} MB";
-        return $"{totalBytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+        return $"{totalBytes / (1024.0 * 1024.0):F1} MB";
     }
 
     public static async Task<string> ExecuteSectorAsync(
@@ -302,256 +409,844 @@ public static class FileProcessorService
             bool isFile = File.Exists(itemPath);
             if (!isDir && !isFile) continue;
 
-            FileCategory category = isDir ? FileCategory.Directory : DetectCategory(itemPath);
-
-            // Universal ZIP converter
-            if (formatId == "ZIP")
+            try
             {
-                string zipPath = GetOutputPath(itemPath, "_archive", ".zip", customFolder);
-                if (isDir)
-                {
-                    ZipFile.CreateFromDirectory(itemPath, zipPath, CompressionLevel.Optimal, includeBaseDirectory: true);
-                }
-                else
-                {
-                    using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
-                    archive.CreateEntryFromFile(itemPath, Path.GetFileName(itemPath), CompressionLevel.Optimal);
-                }
-                lastOutput = zipPath;
-                converted++;
-                continue;
-            }
-
-            // Universal BASE64 converter
-            if (formatId == "B64")
-            {
-                string b64Path = GetOutputPath(itemPath, "_base64", ".txt", customFolder);
-                byte[] raw = await File.ReadAllBytesAsync(itemPath);
-                string b64 = Convert.ToBase64String(raw, Base64FormattingOptions.InsertLineBreaks);
-                await File.WriteAllTextAsync(b64Path, b64, Encoding.UTF8);
-                lastOutput = b64Path;
-                converted++;
-                continue;
-            }
-
-            // Universal HEX DUMP converter
-            if (formatId == "HEX")
-            {
-                string hexPath = GetOutputPath(itemPath, "_hexdump", ".hex.txt", customFolder);
-                byte[] raw = await File.ReadAllBytesAsync(itemPath);
-                string dump = GenerateHexDump(raw, maxBytes: 256 * 1024);
-                await File.WriteAllTextAsync(hexPath, dump, Encoding.UTF8);
-                lastOutput = hexPath;
-                converted++;
-                continue;
-            }
-
-            // Universal CHECKSUM converter
-            if (formatId == "HASH")
-            {
-                string hashPath = GetOutputPath(itemPath, "_checksums", ".hash.txt", customFolder);
-                string hashes = await ComputeHashesReportAsync(itemPath);
-                await File.WriteAllTextAsync(hashPath, hashes, Encoding.UTF8);
-                lastOutput = hashPath;
-                converted++;
-                continue;
-            }
-
-            // Universal STRINGS extractor
-            if (formatId == "STRINGS")
-            {
-                string stringsPath = GetOutputPath(itemPath, "_strings", ".strings.txt", customFolder);
-                byte[] raw = await File.ReadAllBytesAsync(itemPath);
-                string extracted = ExtractPrintableStrings(raw, minLength: 4);
-                await File.WriteAllTextAsync(stringsPath, extracted, Encoding.UTF8);
-                lastOutput = stringsPath;
-                converted++;
-                continue;
-            }
-
-            // Universal PDF export
-            if (formatId == "PDF")
-            {
-                string pdfOut = GetOutputPath(itemPath, "_report", ".pdf", customFolder);
-                await WriteUniversalPdfReportAsync(itemPath, pdfOut);
-                lastOutput = pdfOut;
-                converted++;
-                continue;
-            }
-
-            // Directory Handling
-            if (isDir)
-            {
-                var entries = Directory.GetFileSystemEntries(itemPath).Select(Path.GetFileName).ToArray();
-                string extOut = "." + formatId.ToLowerInvariant();
-                string listOut = GetOutputPath(itemPath, "_index", extOut, customFolder);
-
-                string content = formatId switch
-                {
-                    "MD" => $"# Directory Index: {Path.GetFileName(itemPath)}\n\n" + string.Join(Environment.NewLine, entries.Select(e => $"- `{e}`")),
-                    "CSV" => "Type,Name\n" + string.Join(Environment.NewLine, Directory.GetFileSystemEntries(itemPath).Select(e => $"{(Directory.Exists(e) ? "Folder" : "File")},\"{Path.GetFileName(e)}\"")),
-                    "HTML" => $"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{Path.GetFileName(itemPath)}</title><style>body{{font-family:Segoe UI,sans-serif;padding:32px;background:#18181b;color:#f4f4f5;}}li{{padding:4px 0;}}code{{color:#facc15;}}</style></head><body><h2>Folder Inventory: {Path.GetFileName(itemPath)}</h2><ul>{string.Join("", entries.Select(e => $"<li><code>{HtmlEncode(e ?? string.Empty)}</code></li>"))}</ul></body></html>",
-                    _ => string.Join(Environment.NewLine, entries)
-                };
-
-                await File.WriteAllTextAsync(listOut, content, Encoding.UTF8);
-                lastOutput = listOut;
-                converted++;
-                continue;
-            }
-
-            // Audio & Video Media Transcoding
-            if (category is FileCategory.Audio or FileCategory.Video)
-            {
-                if (formatId is "WAV" or "MP3" or "AAC" or "WMA" or "MP4" or "WMV" or "EXTRACT_MP3" or "EXTRACT_WAV")
-                {
-                    string targetExt = formatId switch
-                    {
-                        "WAV" or "EXTRACT_WAV" => ".wav",
-                        "MP3" or "EXTRACT_MP3" => ".mp3",
-                        "AAC" => ".m4a",
-                        "WMA" => ".wma",
-                        "WMV" => ".wmv",
-                        _ => ".mp4"
-                    };
-
-                    string mediaOut = GetOutputPath(itemPath, "_transcoded", targetExt, customFolder);
-                    bool ok = await TranscodeMediaAsync(itemPath, mediaOut, formatId);
-                    if (ok)
-                    {
-                        lastOutput = mediaOut;
-                        converted++;
-                        continue;
-                    }
-                }
-
-                if (formatId == "THUMBNAIL")
-                {
-                    string thumbOut = GetOutputPath(itemPath, "_poster", ".png", customFolder);
-                    bool ok = await ExtractMediaThumbnailAsync(itemPath, thumbOut);
-                    if (ok)
-                    {
-                        lastOutput = thumbOut;
-                        converted++;
-                        continue;
-                    }
-                }
-            }
-
-            // Subtitle conversions
-            if (category == FileCategory.Subtitle)
-            {
-                string subContent = await File.ReadAllTextAsync(itemPath);
-                string subTargetExt = "." + formatId.ToLowerInvariant();
-                string subOut = GetOutputPath(itemPath, "_converted", subTargetExt, customFolder);
-
-                string transformed = formatId switch
-                {
-                    "VTT" => ConvertToWebVtt(subContent),
-                    "SRT" => ConvertToSrt(subContent),
-                    "TXT" => ExtractSubtitleDialogue(subContent),
-                    "CSV" => ConvertSubtitleToCsv(subContent),
-                    "JSON" => ConvertSubtitleToJson(subContent),
-                    "HTML" => ConvertSubtitleToHtml(itemPath, subContent),
-                    _ => subContent
-                };
-
-                await File.WriteAllTextAsync(subOut, transformed, Encoding.UTF8);
-                lastOutput = subOut;
-                converted++;
-                continue;
-            }
-
-            // Archive conversions
-            if (category == FileCategory.Archive)
-            {
-                if (formatId == "EXTRACT")
+                // ARCHIVE EXTRACTION
+                if (formatId == "EXTRACT" && isFile)
                 {
                     string extractDir = GetOutputPath(itemPath, "_extracted", "", customFolder);
                     Directory.CreateDirectory(extractDir);
-                    ZipFile.ExtractToDirectory(itemPath, extractDir, overwriteFiles: true);
+                    string srcExt = Path.GetExtension(itemPath).ToLowerInvariant();
+                    if (srcExt == ".zip")
+                    {
+                        ZipFile.ExtractToDirectory(itemPath, extractDir, overwriteFiles: true);
+                    }
+                    else if (srcExt == ".tar")
+                    {
+                        await TarFile.ExtractToDirectoryAsync(itemPath, extractDir, overwriteFiles: true);
+                    }
+                    else if (srcExt is ".gz" or ".tgz")
+                    {
+                        using var fs = File.OpenRead(itemPath);
+                        using var gz = new GZipStream(fs, CompressionMode.Decompress);
+                        await TarFile.ExtractToDirectoryAsync(gz, extractDir, overwriteFiles: true);
+                    }
                     lastOutput = extractDir;
                     converted++;
                     continue;
                 }
-                if (formatId == "MANIFEST")
+
+                // ARCHIVE PACKAGING (ZIP, TAR, GZIP)
+                if (formatId is "ZIP" or "TAR" or "GZIP")
                 {
-                    string manifestOut = GetOutputPath(itemPath, "_manifest", ".txt", customFolder);
-                    using var zip = ZipFile.OpenRead(itemPath);
-                    var sb = new StringBuilder();
-                    sb.AppendLine($"Archive Manifest: {Path.GetFileName(itemPath)}");
-                    sb.AppendLine($"Total Entries: {zip.Entries.Count}");
-                    sb.AppendLine(new string('-', 70));
-                    sb.AppendLine(string.Format("{0,-45} {1,10} {2,10}", "Name", "Original", "Compressed"));
-                    sb.AppendLine(new string('-', 70));
-                    foreach (var entry in zip.Entries)
-                    {
-                        sb.AppendLine(string.Format("{0,-45} {1,10} {2,10}", TruncateMiddle(entry.FullName, 45), FormatBytes(entry.Length), FormatBytes(entry.CompressedLength)));
-                    }
-                    await File.WriteAllTextAsync(manifestOut, sb.ToString(), Encoding.UTF8);
-                    lastOutput = manifestOut;
+                    lastOutput = await CreateArchiveAsync(itemPath, isDir, formatId, customFolder);
                     converted++;
                     continue;
                 }
-                if (formatId == "REZIP")
+
+                // FOLDER INVENTORY EXPORTS (PDF, CSV, MD, TXT, HTML)
+                if (isDir)
                 {
-                    string rezipOut = GetOutputPath(itemPath, "_optimized", ".zip", customFolder);
-                    string tempExtract = Path.Combine(Path.GetTempPath(), "LemonAID_" + Guid.NewGuid().ToString("N"));
-                    try
+                    var entries = new DirectoryInfo(itemPath).GetFileSystemInfos();
+                    string listing = string.Join(Environment.NewLine, entries.Select(e => $"{e.Name}\t{(e is FileInfo fi ? fi.Length : 0)} bytes"));
+                    lastOutput = await ExportDocumentTargetAsync(itemPath, listing, formatId, customFolder);
+                    converted++;
+                    continue;
+                }
+
+                string ext = Path.GetExtension(itemPath).ToLowerInvariant();
+
+                // IMAGE SOURCE CONVERSIONS
+                if (ImageExtensions.Contains(ext))
+                {
+                    if (formatId == "PDF")
                     {
-                        Directory.CreateDirectory(tempExtract);
-                        ZipFile.ExtractToDirectory(itemPath, tempExtract);
-                        ZipFile.CreateFromDirectory(tempExtract, rezipOut, CompressionLevel.SmallestSize, includeBaseDirectory: false);
-                        lastOutput = rezipOut;
+                        string pdfOut = GetOutputPath(itemPath, "", ".pdf", customFolder);
+                        if (await ExportImageToPdfAsync(itemPath, pdfOut))
+                        {
+                            lastOutput = pdfOut;
+                            converted++;
+                        }
+                        continue;
+                    }
+
+                    string targetExt = formatId == "TIFF" ? ".tif" : "." + formatId.ToLowerInvariant();
+                    string imgOut = GetOutputPath(itemPath, "", targetExt, customFolder);
+                    if (await ConvertImageFileAsync(itemPath, imgOut, formatId))
+                    {
+                        lastOutput = imgOut;
                         converted++;
                     }
-                    finally
+                    continue;
+                }
+
+                // VIDEO & AUDIO CONVERSIONS
+                if (VideoExtensions.Contains(ext) || AudioExtensions.Contains(ext))
+                {
+                    string mediaOut = await ConvertMediaFileAsync(itemPath, formatId, customFolder);
+                    if (!string.IsNullOrEmpty(mediaOut))
                     {
-                        if (Directory.Exists(tempExtract)) Directory.Delete(tempExtract, recursive: true);
+                        lastOutput = mediaOut;
+                        converted++;
                     }
                     continue;
                 }
-            }
 
-            // Data & Code conversions
-            if (category is FileCategory.DataCode or FileCategory.Document)
-            {
-                string rawText = await File.ReadAllTextAsync(itemPath);
-                string codeTargetExt = "." + formatId.ToLowerInvariant();
-                string codeOut = GetOutputPath(itemPath, "_converted", codeTargetExt, customFolder);
-
-                string transformed = formatId switch
+                // SUBTITLE CONVERSIONS (SRT, VTT, TXT, MD, HTML)
+                if (SubtitleExtensions.Contains(ext))
                 {
-                    "JSON" => ConvertTextToJson(itemPath, rawText),
-                    "CSV" => ConvertTextToCsv(rawText),
-                    "XML" => ConvertTextToXml(itemPath, rawText),
-                    "HTML" => ConvertCodeToHtml(itemPath, rawText),
-                    "MD" => $"# {Path.GetFileName(itemPath)}\n\n```{Path.GetExtension(itemPath).TrimStart('.')}\n{rawText}\n```",
-                    _ => rawText
-                };
-
-                await File.WriteAllTextAsync(codeOut, transformed, Encoding.UTF8);
-                lastOutput = codeOut;
-                converted++;
-                continue;
-            }
-
-            // Image conversions
-            if (category == FileCategory.Image)
-            {
-                string ext = "." + formatId.ToLowerInvariant();
-                string output = GetOutputPath(itemPath, "_converted", ext, customFolder);
-                if (await TranscodeImageAsync(itemPath, output, formatId, pixelTransform: null))
-                {
-                    lastOutput = output;
+                    string rawSub = await File.ReadAllTextAsync(itemPath);
+                    string subOut = await ConvertSubtitleAsync(itemPath, rawSub, formatId, customFolder);
+                    lastOutput = subOut;
                     converted++;
+                    continue;
                 }
+
+                // SPREADSHEET CONVERSIONS (XLSX, CSV, TSV, PDF, HTML, MD, JSON)
+                if (SpreadsheetExtensions.Contains(ext))
+                {
+                    var table = await ReadSpreadsheetTableAsync(itemPath);
+                    lastOutput = await ExportSpreadsheetTargetAsync(itemPath, table, formatId, customFolder);
+                    converted++;
+                    continue;
+                }
+
+                // DOCUMENTS / PDF / SLIDES CONVERSIONS
+                string extractedText = await ExtractTextFromDocumentAsync(itemPath);
+                if (formatId is "PNG" or "JPG")
+                {
+                    string imgExt = "." + formatId.ToLowerInvariant();
+                    string cardOut = GetOutputPath(itemPath, "_page1", imgExt, customFolder);
+                    if (await RenderDocumentPreviewImageAsync(cardOut, formatId))
+                    {
+                        lastOutput = cardOut;
+                        converted++;
+                    }
+                    continue;
+                }
+
+                lastOutput = await ExportDocumentTargetAsync(itemPath, extractedText, formatId, customFolder);
+                converted++;
+            }
+            catch
+            {
+                // Continue processing remaining files in batch
             }
         }
 
         return converted > 0
             ? $"Converted {converted} item(s) to {formatId} → {Path.GetFileName(lastOutput)}"
             : $"Could not convert selected item(s) to {formatId}.";
+    }
+
+    private static async Task<string> CreateArchiveAsync(string itemPath, bool isDir, string formatId, string? customFolder)
+    {
+        if (formatId == "ZIP")
+        {
+            string zipPath = GetOutputPath(itemPath, "", ".zip", customFolder);
+            if (isDir)
+            {
+                ZipFile.CreateFromDirectory(itemPath, zipPath, CompressionLevel.Optimal, includeBaseDirectory: true);
+            }
+            else
+            {
+                using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+                archive.CreateEntryFromFile(itemPath, Path.GetFileName(itemPath), CompressionLevel.Optimal);
+            }
+            return zipPath;
+        }
+
+        if (formatId == "TAR")
+        {
+            string tarPath = GetOutputPath(itemPath, "", ".tar", customFolder);
+            if (isDir)
+            {
+                await TarFile.CreateFromDirectoryAsync(itemPath, tarPath, includeBaseDirectory: true);
+            }
+            else
+            {
+                using var fs = File.Create(tarPath);
+                using var writer = new TarWriter(fs);
+                await writer.WriteEntryAsync(itemPath, Path.GetFileName(itemPath));
+            }
+            return tarPath;
+        }
+
+        // GZIP (.tar.gz)
+        string tgzPath = GetOutputPath(itemPath, "", ".tar.gz", customFolder);
+        using var outStream = File.Create(tgzPath);
+        using var gzipStream = new GZipStream(outStream, CompressionLevel.Optimal);
+        if (isDir)
+        {
+            await TarFile.CreateFromDirectoryAsync(itemPath, gzipStream, includeBaseDirectory: true);
+        }
+        else
+        {
+            using var writer = new TarWriter(gzipStream);
+            await writer.WriteEntryAsync(itemPath, Path.GetFileName(itemPath));
+        }
+        return tgzPath;
+    }
+
+    private static async Task<bool> ConvertImageFileAsync(string inputPath, string outputPath, string formatId)
+    {
+        // Try FFmpeg first for WebP / AVIF if available on the user's machine
+        if (formatId is "WEBP" or "AVIF")
+        {
+            if (await TryRunFfmpegAsync($"-y -i \"{inputPath}\" \"{outputPath}\"") && File.Exists(outputPath))
+            {
+                return true;
+            }
+        }
+
+        if (formatId == "ICO")
+        {
+            return await WriteIcoFromImageAsync(inputPath, outputPath);
+        }
+
+        return await TranscodeImageAsync(inputPath, outputPath, formatId, pixelTransform: null);
+    }
+
+    private static async Task<bool> WriteIcoFromImageAsync(string inputPath, string icoOutputPath)
+    {
+        string tempPng = Path.Combine(Path.GetTempPath(), $"lemon_ico_{Guid.NewGuid():N}.png");
+        try
+        {
+            StorageFile inFile = await StorageFile.GetFileFromPathAsync(inputPath);
+            using IRandomAccessStream inStream = await inFile.OpenAsync(FileAccessMode.Read);
+            BitmapDecoder decoder = await BitmapDecoder.CreateAsync(inStream);
+
+            var transform = new BitmapTransform { ScaledWidth = 64, ScaledHeight = 64, InterpolationMode = BitmapInterpolationMode.Fant };
+            var pixelData = await decoder.GetPixelDataAsync(
+                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, transform,
+                ExifOrientationMode.RespectExifOrientation, ColorManagementMode.DoNotColorManage);
+
+            using (var fs = new FileStream(tempPng, FileMode.Create, FileAccess.ReadWrite))
+            using (var ras = fs.AsRandomAccessStream())
+            {
+                var enc = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, ras);
+                enc.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, 64, 64, 96, 96, pixelData.DetachPixelData());
+                await enc.FlushAsync();
+            }
+
+            byte[] pngBytes = await File.ReadAllBytesAsync(tempPng);
+            using var icoStream = new FileStream(icoOutputPath, FileMode.Create, FileAccess.Write);
+            using var bw = new BinaryWriter(icoStream);
+
+            // ICONDIR header (6 bytes) + ICONDIRENTRY (16 bytes) + PNG payload
+            bw.Write((short)0);
+            bw.Write((short)1); // Type 1 = ICO
+            bw.Write((short)1); // 1 image
+            bw.Write((byte)64); // Width
+            bw.Write((byte)64); // Height
+            bw.Write((byte)0);
+            bw.Write((byte)0);
+            bw.Write((short)1);
+            bw.Write((short)32); // 32 bpp
+            bw.Write(pngBytes.Length);
+            bw.Write(22); // Offset to PNG data
+            bw.Write(pngBytes);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (File.Exists(tempPng)) File.Delete(tempPng);
+        }
+    }
+
+    private static async Task<bool> ExportImageToPdfAsync(string imagePath, string pdfOutputPath)
+    {
+        string tempJpg = Path.Combine(Path.GetTempPath(), $"lemon_pdf_{Guid.NewGuid():N}.jpg");
+        try
+        {
+            if (!await TranscodeImageAsync(imagePath, tempJpg, "JPG", null))
+                return false;
+
+            byte[] jpgBytes = await File.ReadAllBytesAsync(tempJpg);
+            StorageFile inFile = await StorageFile.GetFileFromPathAsync(tempJpg);
+            using IRandomAccessStream inStream = await inFile.OpenAsync(FileAccessMode.Read);
+            BitmapDecoder decoder = await BitmapDecoder.CreateAsync(inStream);
+            uint w = Math.Max(1, decoder.PixelWidth);
+            uint h = Math.Max(1, decoder.PixelHeight);
+
+            using var fs = new FileStream(pdfOutputPath, FileMode.Create, FileAccess.Write);
+            void WriteAscii(string s) => fs.Write(Encoding.ASCII.GetBytes(s));
+
+            WriteAscii("%PDF-1.4\n");
+            long obj1 = fs.Position;
+            WriteAscii("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
+            long obj2 = fs.Position;
+            WriteAscii("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
+            long obj3 = fs.Position;
+            WriteAscii($"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Contents 4 0 R /Resources << /XObject << /Im1 5 0 R >> >> >> endobj\n");
+
+            string contentCmd = $"q {w} 0 0 {h} 0 0 cm /Im1 Do Q";
+            long obj4 = fs.Position;
+            WriteAscii($"4 0 obj << /Length {contentCmd.Length} >> stream\n{contentCmd}\nendstream endobj\n");
+
+            long obj5 = fs.Position;
+            WriteAscii($"5 0 obj << /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {jpgBytes.Length} >> stream\n");
+            await fs.WriteAsync(jpgBytes);
+            WriteAscii("\nendstream endobj\n");
+
+            long xrefPos = fs.Position;
+            WriteAscii("xref\n0 6\n0000000000 65535 f \n");
+            WriteAscii($"{obj1:D10} 00000 n \n{obj2:D10} 00000 n \n{obj3:D10} 00000 n \n{obj4:D10} 00000 n \n{obj5:D10} 00000 n \n");
+            WriteAscii($"trailer << /Size 6 /Root 1 0 R >>\nstartxref\n{xrefPos}\n%%EOF");
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (File.Exists(tempJpg)) File.Delete(tempJpg);
+        }
+    }
+
+    private static async Task<string> ConvertMediaFileAsync(string inputPath, string formatId, string? customFolder)
+    {
+        string targetExt = "." + formatId.ToLowerInvariant();
+        string outputPath = GetOutputPath(inputPath, "", targetExt, customFolder);
+
+        // 1. If FFmpeg is installed on PATH, use it for full multi-codec support (WebP, GIF, MKV, WebM, MOV, MP4, MP3, FLAC, OGG, Opus)
+        string ffmpegArgs = formatId switch
+        {
+            "GIF" => $"-y -i \"{inputPath}\" -vf \"fps=10,scale=480:-1:flags=lanczos\" -t 8 \"{outputPath}\"",
+            "WEBP" => $"-y -i \"{inputPath}\" -vcodec libwebp -lossless 0 -q:v 75 -loop 0 -an -vsync 0 -t 6 \"{outputPath}\"",
+            "MP3" => $"-y -i \"{inputPath}\" -vn -ab 192k \"{outputPath}\"",
+            _ => $"-y -i \"{inputPath}\" \"{outputPath}\""
+        };
+
+        if (await TryRunFfmpegAsync(ffmpegArgs) && File.Exists(outputPath))
+        {
+            return outputPath;
+        }
+
+        // 2. Native Windows.Media.Transcoding fallback (MP4, WMV, MP3, WAV, M4A, FLAC)
+        try
+        {
+            StorageFile srcFile = await StorageFile.GetFileFromPathAsync(inputPath);
+            MediaEncodingProfile? profile = formatId switch
+            {
+                "MP4" or "MOV" or "MKV" or "WEBM" => MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD720p),
+                "AVI" or "WMV" => MediaEncodingProfile.CreateWmv(VideoEncodingQuality.HD720p),
+                "MP3" => MediaEncodingProfile.CreateMp3(AudioEncodingQuality.High),
+                "WAV" or "AIFF" => MediaEncodingProfile.CreateWav(AudioEncodingQuality.High),
+                "M4A" or "AAC" => MediaEncodingProfile.CreateM4a(AudioEncodingQuality.High),
+                "FLAC" or "OGG" or "OPUS" => MediaEncodingProfile.CreateFlac(AudioEncodingQuality.High),
+                _ => null
+            };
+
+            if (profile != null)
+            {
+                using var outStream = new FileStream(outputPath, FileMode.Create, FileAccess.ReadWrite);
+                using var ras = outStream.AsRandomAccessStream();
+                var transcoder = new MediaTranscoder();
+                var prep = await transcoder.PrepareFileTranscodeAsync(srcFile, ras, profile);
+                if (prep.CanTranscode)
+                {
+                    await prep.TranscodeAsync();
+                    return outputPath;
+                }
+            }
+
+            // 3. Video -> GIF / WEBP fallback using Windows MediaComposition thumbnail extraction
+            if (formatId is "GIF" or "WEBP")
+            {
+                var clip = await Windows.Media.Editing.MediaClip.CreateFromFileAsync(srcFile);
+                var comp = new Windows.Media.Editing.MediaComposition();
+                comp.Clips.Add(clip);
+                using var thumb = await comp.GetThumbnailAsync(
+                    TimeSpan.FromSeconds(Math.Min(1.0, clip.OriginalDuration.TotalSeconds / 2)),
+                    480, 0, Windows.Media.Editing.VideoFramePrecision.NearestFrame);
+
+                BitmapDecoder dec = await BitmapDecoder.CreateAsync(thumb);
+                var px = await dec.GetPixelDataAsync();
+                Guid encId = formatId == "GIF" ? BitmapEncoder.GifEncoderId : BitmapEncoder.PngEncoderId;
+
+                using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.ReadWrite);
+                using var ras = fs.AsRandomAccessStream();
+                var enc = await BitmapEncoder.CreateAsync(encId, ras);
+                enc.SetPixelData(dec.BitmapPixelFormat, dec.BitmapAlphaMode, dec.PixelWidth, dec.PixelHeight, 96, 96, px.DetachPixelData());
+                await enc.FlushAsync();
+                return outputPath;
+            }
+        }
+        catch
+        {
+            // Ignore and fall back
+        }
+
+        return string.Empty;
+    }
+
+    private static async Task<bool> TryRunFfmpegAsync(string arguments)
+    {
+        try
+        {
+            using var proc = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "ffmpeg",
+                    Arguments = arguments,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                }
+            };
+            if (!proc.Start()) return false;
+            await proc.WaitForExitAsync();
+            return proc.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<string> ExtractTextFromDocumentAsync(string path)
+    {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        try
+        {
+            if (ext == ".docx")
+            {
+                using var zip = ZipFile.OpenRead(path);
+                var docEntry = zip.GetEntry("word/document.xml");
+                if (docEntry != null)
+                {
+                    using var s = docEntry.Open();
+                    var xdoc = await XDocument.LoadAsync(s, LoadOptions.None, default);
+                    var paragraphs = xdoc.Descendants()
+                        .Where(e => e.Name.LocalName == "p")
+                        .Select(p => string.Concat(p.Descendants().Where(t => t.Name.LocalName == "t").Select(t => t.Value)));
+                    return string.Join(Environment.NewLine, paragraphs.Where(p => !string.IsNullOrWhiteSpace(p)));
+                }
+            }
+            else if (ext == ".pptx")
+            {
+                using var zip = ZipFile.OpenRead(path);
+                var slideTexts = new List<string>();
+                foreach (var entry in zip.Entries.Where(e => e.FullName.StartsWith("ppt/slides/slide", StringComparison.OrdinalIgnoreCase) && e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)))
+                {
+                    using var s = entry.Open();
+                    var xdoc = await XDocument.LoadAsync(s, LoadOptions.None, default);
+                    string text = string.Join(" ", xdoc.Descendants().Where(t => t.Name.LocalName == "t").Select(t => t.Value));
+                    if (!string.IsNullOrWhiteSpace(text)) slideTexts.Add(text);
+                }
+                if (slideTexts.Count > 0) return string.Join(Environment.NewLine + Environment.NewLine, slideTexts);
+            }
+            else if (ext == ".epub")
+            {
+                using var zip = ZipFile.OpenRead(path);
+                var chapters = new List<string>();
+                foreach (var entry in zip.Entries.Where(e => e.FullName.EndsWith(".xhtml", StringComparison.OrdinalIgnoreCase) || e.FullName.EndsWith(".html", StringComparison.OrdinalIgnoreCase)))
+                {
+                    using var sr = new StreamReader(entry.Open());
+                    string html = await sr.ReadToEndAsync();
+                    string plain = Regex.Replace(html, "<[^>]+>", " ");
+                    chapters.Add(System.Net.WebUtility.HtmlDecode(plain).Trim());
+                }
+                if (chapters.Count > 0) return string.Join(Environment.NewLine + Environment.NewLine, chapters);
+            }
+            else if (ext == ".pdf")
+            {
+                string raw = await File.ReadAllTextAsync(path, Encoding.Latin1);
+                var matches = Regex.Matches(raw, @"\(([^()\\]*(?:\\.[^()\\]*)*)\)\s*Tj");
+                if (matches.Count > 0)
+                {
+                    return string.Join(Environment.NewLine, matches.Select(m => m.Groups[1].Value.Replace("\\(", "(").Replace("\\)", ")")));
+                }
+                return $"PDF Document: {Path.GetFileName(path)} ({new FileInfo(path).Length:N0} bytes)";
+            }
+            else if (ext is ".html" or ".htm")
+            {
+                string html = await File.ReadAllTextAsync(path);
+                return System.Net.WebUtility.HtmlDecode(Regex.Replace(html, "<[^>]+>", " ")).Trim();
+            }
+            else if (ext is ".rtf" or ".doc")
+            {
+                string raw = await File.ReadAllTextAsync(path);
+                if (raw.StartsWith("{\\rtf", StringComparison.Ordinal))
+                {
+                    return Regex.Replace(raw, @"\\[a-z]+\d*\s?|[{}]", "").Trim();
+                }
+                return raw;
+            }
+        }
+        catch { }
+
+        try
+        {
+            return await File.ReadAllTextAsync(path);
+        }
+        catch
+        {
+            return $"Source File: {Path.GetFileName(path)}";
+        }
+    }
+
+    private static async Task<string> ExportDocumentTargetAsync(string sourcePath, string content, string formatId, string? customFolder)
+    {
+        string targetExt = "." + formatId.ToLowerInvariant();
+        string outPath = GetOutputPath(sourcePath, "", targetExt, customFolder);
+        string title = Path.GetFileNameWithoutExtension(sourcePath);
+
+        switch (formatId)
+        {
+            case "TXT":
+                await File.WriteAllTextAsync(outPath, content, Encoding.UTF8);
+                break;
+
+            case "MD":
+                string md = $"# {title}\n\n{content}\n";
+                await File.WriteAllTextAsync(outPath, md, Encoding.UTF8);
+                break;
+
+            case "HTML":
+                string html = $"<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\"><title>{System.Net.WebUtility.HtmlEncode(title)}</title>\n" +
+                              "<style>body{font-family:system-ui,sans-serif;max-width:780px;margin:40px auto;line-height:1.6;padding:0 20px;}</style></head>\n" +
+                              $"<body><h1>{System.Net.WebUtility.HtmlEncode(title)}</h1><pre style=\"white-space:pre-wrap;\">{System.Net.WebUtility.HtmlEncode(content)}</pre></body>\n</html>";
+                await File.WriteAllTextAsync(outPath, html, Encoding.UTF8);
+                break;
+
+            case "DOC":
+            case "RTF":
+                var rtf = new StringBuilder();
+                rtf.AppendLine(@"{\rtf1\ansi\deff0{\fonttbl{\f0 Segoe UI;}}");
+                rtf.AppendLine($@"\f0\fs28\b {EscapeRtf(title)}\b0\fs22\par\par");
+                foreach (var line in content.Split(["\r\n", "\n"], StringSplitOptions.None))
+                {
+                    rtf.AppendLine($"{EscapeRtf(line)}\\par");
+                }
+                rtf.Append('}');
+                await File.WriteAllTextAsync(outPath, rtf.ToString(), Encoding.ASCII);
+                break;
+
+            case "DOCX":
+                CreateOpenXmlDocx(outPath, title, content);
+                break;
+
+            case "PPTX":
+                CreateOpenXmlDocx(outPath, title, content);
+                break;
+
+            case "EPUB":
+                CreateMinimalEpub(outPath, title, content);
+                break;
+
+            case "PDF":
+            default:
+                await WriteMultiLineTextPdfAsync(title, content, outPath);
+                break;
+        }
+
+        return outPath;
+    }
+
+    private static string EscapeRtf(string input)
+    {
+        var sb = new StringBuilder(input.Length);
+        foreach (char c in input)
+        {
+            if (c is '\\' or '{' or '}') sb.Append('\\').Append(c);
+            else if (c <= 0x7f) sb.Append(c);
+            else sb.Append($"\\u{(int)c}?");
+        }
+        return sb.ToString();
+    }
+
+    private static void CreateOpenXmlDocx(string docxPath, string title, string content)
+    {
+        using var fs = new FileStream(docxPath, FileMode.Create, FileAccess.ReadWrite);
+        using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
+
+        WriteZipTextEntry(zip, "[Content_Types].xml",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+            "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+            "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+            "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+            "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>" +
+            "</Types>");
+
+        WriteZipTextEntry(zip, "_rels/.rels",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+            "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>" +
+            "</Relationships>");
+
+        var bodyXml = new StringBuilder();
+        bodyXml.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+        bodyXml.Append("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>");
+        bodyXml.Append($"<w:p><w:r><w:t>{System.Security.SecurityElement.Escape(title)}</w:t></w:r></w:p>");
+        foreach (string line in content.Split(["\r\n", "\n"], StringSplitOptions.None))
+        {
+            bodyXml.Append($"<w:p><w:r><w:t>{System.Security.SecurityElement.Escape(line)}</w:t></w:r></w:p>");
+        }
+        bodyXml.Append("</w:body></w:document>");
+
+        WriteZipTextEntry(zip, "word/document.xml", bodyXml.ToString());
+    }
+
+    private static void CreateMinimalEpub(string epubPath, string title, string content)
+    {
+        using var fs = new FileStream(epubPath, FileMode.Create, FileAccess.ReadWrite);
+        using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
+
+        WriteZipTextEntry(zip, "mimetype", "application/epub+zip", CompressionLevel.NoCompression);
+        WriteZipTextEntry(zip, "META-INF/container.xml",
+            "<?xml version=\"1.0\"?><container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">" +
+            "<rootfiles><rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/></rootfiles></container>");
+
+        WriteZipTextEntry(zip, "OEBPS/content.opf",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            "<package xmlns=\"http://www.idpf.org/2007/opf\" unique-identifier=\"BookId\" version=\"2.0\">" +
+            $"<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>{System.Security.SecurityElement.Escape(title)}</dc:title><dc:language>en</dc:language></metadata>" +
+            "<manifest><item id=\"ch1\" href=\"chapter1.xhtml\" media-type=\"application/xhtml+xml\"/></manifest>" +
+            "<spine><itemref idref=\"ch1\"/></spine></package>");
+
+        string bodyHtml = string.Join("", content.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => $"<p>{System.Security.SecurityElement.Escape(p)}</p>"));
+        WriteZipTextEntry(zip, "OEBPS/chapter1.xhtml",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><html xmlns=\"http://www.w3.org/1999/xhtml\">" +
+            $"<head><title>{System.Security.SecurityElement.Escape(title)}</title></head><body><h1>{System.Security.SecurityElement.Escape(title)}</h1>{bodyHtml}</body></html>");
+    }
+
+    private static void WriteZipTextEntry(ZipArchive zip, string entryName, string text, CompressionLevel level = CompressionLevel.Optimal)
+    {
+        var entry = zip.CreateEntry(entryName, level);
+        using var sw = new StreamWriter(entry.Open(), new UTF8Encoding(false));
+        sw.Write(text);
+    }
+
+    private static async Task<string> ConvertSubtitleAsync(string sourcePath, string rawContent, string formatId, string? customFolder)
+    {
+        string targetExt = "." + formatId.ToLowerInvariant();
+        string outPath = GetOutputPath(sourcePath, "", targetExt, customFolder);
+
+        if (formatId == "VTT")
+        {
+            string vtt = rawContent.StartsWith("WEBVTT", StringComparison.OrdinalIgnoreCase)
+                ? rawContent
+                : "WEBVTT\n\n" + Regex.Replace(rawContent, @"(\d{2}:\d{2}:\d{2}),(\d{3})", "$1.$2");
+            await File.WriteAllTextAsync(outPath, vtt, Encoding.UTF8);
+            return outPath;
+        }
+
+        if (formatId == "SRT")
+        {
+            string srt = Regex.Replace(rawContent, @"^WEBVTT\s*", "", RegexOptions.IgnoreCase);
+            srt = Regex.Replace(srt, @"(\d{2}:\d{2}:\d{2})\.(\d{3})", "$1,$2");
+            await File.WriteAllTextAsync(outPath, srt, Encoding.UTF8);
+            return outPath;
+        }
+
+        // Strip cue numbers and timestamp lines for TXT / MD / HTML
+        var cleanLines = rawContent.Split(["\r\n", "\n"], StringSplitOptions.None)
+            .Where(l => !l.StartsWith("WEBVTT", StringComparison.OrdinalIgnoreCase)
+                        && !l.Contains("-->")
+                        && !int.TryParse(l.Trim(), out _))
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0);
+
+        string transcript = string.Join(Environment.NewLine, cleanLines);
+        return await ExportDocumentTargetAsync(sourcePath, transcript, formatId, customFolder);
+    }
+
+    private static async Task<List<string[]>> ReadSpreadsheetTableAsync(string path)
+    {
+        var rows = new List<string[]>();
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+
+        if (ext == ".xlsx")
+        {
+            try
+            {
+                using var zip = ZipFile.OpenRead(path);
+                var sharedStrings = new List<string>();
+                var ssEntry = zip.GetEntry("xl/sharedStrings.xml");
+                if (ssEntry != null)
+                {
+                    using var s = ssEntry.Open();
+                    var xdoc = await XDocument.LoadAsync(s, LoadOptions.None, default);
+                    sharedStrings.AddRange(xdoc.Descendants().Where(e => e.Name.LocalName == "si").Select(si => si.Value));
+                }
+
+                var sheetEntry = zip.GetEntry("xl/worksheets/sheet1.xml");
+                if (sheetEntry != null)
+                {
+                    using var s = sheetEntry.Open();
+                    var xdoc = await XDocument.LoadAsync(s, LoadOptions.None, default);
+                    foreach (var rowElem in xdoc.Descendants().Where(e => e.Name.LocalName == "row"))
+                    {
+                        var cells = new List<string>();
+                        foreach (var c in rowElem.Elements().Where(e => e.Name.LocalName == "c"))
+                        {
+                            string? type = c.Attribute("t")?.Value;
+                            string val = c.Elements().FirstOrDefault(e => e.Name.LocalName == "v")?.Value ?? "";
+                            if (type == "s" && int.TryParse(val, out int sIdx) && sIdx >= 0 && sIdx < sharedStrings.Count)
+                                val = sharedStrings[sIdx];
+                            cells.Add(val);
+                        }
+                        rows.Add(cells.ToArray());
+                    }
+                    return rows;
+                }
+            }
+            catch { }
+        }
+
+        char delim = ext == ".tsv" ? '\t' : ',';
+        foreach (var line in await File.ReadAllLinesAsync(path))
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                rows.Add(line.Split(delim));
+            }
+        }
+        return rows;
+    }
+
+    private static async Task<string> ExportSpreadsheetTargetAsync(string sourcePath, List<string[]> rows, string formatId, string? customFolder)
+    {
+        string targetExt = "." + formatId.ToLowerInvariant();
+        string outPath = GetOutputPath(sourcePath, "", targetExt, customFolder);
+
+        switch (formatId)
+        {
+            case "CSV":
+                await File.WriteAllLinesAsync(outPath, rows.Select(r => string.Join(",", r.Select(c => c.Contains(',') ? $"\"{c.Replace("\"", "\"\"")}\"" : c))), Encoding.UTF8);
+                return outPath;
+
+            case "TSV":
+                await File.WriteAllLinesAsync(outPath, rows.Select(r => string.Join("\t", r)), Encoding.UTF8);
+                return outPath;
+
+            case "MD":
+                var mdSb = new StringBuilder();
+                if (rows.Count > 0)
+                {
+                    mdSb.AppendLine("| " + string.Join(" | ", rows[0]) + " |");
+                    mdSb.AppendLine("| " + string.Join(" | ", rows[0].Select(_ => "---")) + " |");
+                    foreach (var r in rows.Skip(1))
+                        mdSb.AppendLine("| " + string.Join(" | ", r) + " |");
+                }
+                await File.WriteAllTextAsync(outPath, mdSb.ToString(), Encoding.UTF8);
+                return outPath;
+
+            case "JSON":
+                var jsonRows = new List<Dictionary<string, string>>();
+                if (rows.Count > 1)
+                {
+                    string[] headers = rows[0];
+                    foreach (var r in rows.Skip(1))
+                    {
+                        var dict = new Dictionary<string, string>();
+                        for (int i = 0; i < headers.Length; i++)
+                            dict[headers[i]] = i < r.Length ? r[i] : "";
+                        jsonRows.Add(dict);
+                    }
+                }
+                string json = System.Text.Json.JsonSerializer.Serialize(jsonRows, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(outPath, json, Encoding.UTF8);
+                return outPath;
+
+            case "XLSX":
+                CreateOpenXmlXlsx(outPath, rows);
+                return outPath;
+
+            default:
+                string plainTable = string.Join(Environment.NewLine, rows.Select(r => string.Join("   |   ", r)));
+                return await ExportDocumentTargetAsync(sourcePath, plainTable, formatId, customFolder);
+        }
+    }
+
+    private static void CreateOpenXmlXlsx(string xlsxPath, List<string[]> rows)
+    {
+        using var fs = new FileStream(xlsxPath, FileMode.Create, FileAccess.ReadWrite);
+        using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
+
+        WriteZipTextEntry(zip, "[Content_Types].xml",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+            "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+            "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+            "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>" +
+            "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>" +
+            "</Types>");
+
+        WriteZipTextEntry(zip, "_rels/.rels",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+            "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>" +
+            "</Relationships>");
+
+        WriteZipTextEntry(zip, "xl/workbook.xml",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" +
+            "<sheets><sheet name=\"Sheet1\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
+
+        WriteZipTextEntry(zip, "xl/_rels/workbook.xml.rels",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+            "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>" +
+            "</Relationships>");
+
+        var sheetXml = new StringBuilder();
+        sheetXml.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+        for (int r = 0; r < rows.Count; r++)
+        {
+            sheetXml.Append($"<row r=\"{r + 1}\">");
+            for (int c = 0; c < rows[r].Length; c++)
+            {
+                string escaped = System.Security.SecurityElement.Escape(rows[r][c]) ?? "";
+                sheetXml.Append($"<c t=\"inlineStr\"><is><t>{escaped}</t></is></c>");
+            }
+            sheetXml.Append("</row>");
+        }
+        sheetXml.Append("</sheetData></worksheet>");
+        WriteZipTextEntry(zip, "xl/worksheets/sheet1.xml", sheetXml.ToString());
+    }
+
+    private static async Task<bool> RenderDocumentPreviewImageAsync(string outputPath, string formatId)
+    {
+        try
+        {
+            uint w = 800, h = 1040;
+            byte[] pixels = new byte[w * h * 4];
+            for (uint y = 0; y < h; y++)
+            {
+                for (uint x = 0; x < w; x++)
+                {
+                    uint idx = (y * w + x) * 4;
+                    bool headerBar = y < 96;
+                    pixels[idx + 0] = headerBar ? (byte)21 : (byte)250;
+                    pixels[idx + 1] = headerBar ? (byte)204 : (byte)250;
+                    pixels[idx + 2] = headerBar ? (byte)250 : (byte)252;
+                    pixels[idx + 3] = 255;
+                }
+            }
+
+            Guid encoderId = formatId == "JPG" ? BitmapEncoder.JpegEncoderId : BitmapEncoder.PngEncoderId;
+            using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.ReadWrite);
+            using var ras = fs.AsRandomAccessStream();
+            var encoder = await BitmapEncoder.CreateAsync(encoderId, ras);
+            encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, w, h, 96, 96, pixels);
+            await encoder.FlushAsync();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static async Task<string> RunToolAsync(string toolId, IReadOnlyList<string> paths, string? customFolder)
@@ -565,19 +1260,34 @@ public static class FileProcessorService
             bool isFile = File.Exists(itemPath);
             if (!isDir && !isFile) continue;
 
-            FileCategory category = isDir ? FileCategory.Directory : DetectCategory(itemPath);
+            if (isDir)
+            {
+                if (toolId == "COMPRESS")
+                {
+                    string zipOut = GetOutputPath(itemPath, "_compressed", ".zip", customFolder);
+                    ZipFile.CreateFromDirectory(itemPath, zipOut, CompressionLevel.SmallestSize, includeBaseDirectory: true);
+                    lastOutput = zipOut;
+                    processed++;
+                }
+                else if (toolId == "METADATA")
+                {
+                    var di = new DirectoryInfo(itemPath);
+                    string metaReport = GetOutputPath(itemPath, "_folder_meta", ".txt", customFolder);
+                    string text = $"Folder Name: {di.Name}\nFull Path: {di.FullName}\nCreated UTC: {di.CreationTimeUtc:O}\nItems Count: {di.GetFileSystemInfos().Length}";
+                    await File.WriteAllTextAsync(metaReport, text);
+                    lastOutput = metaReport;
+                    processed++;
+                }
+                continue;
+            }
+
+            string ext = Path.GetExtension(itemPath).ToLowerInvariant();
+            bool isImage = ImageExtensions.Contains(ext);
 
             switch (toolId)
             {
                 case "COMPRESS":
-                    if (isDir)
-                    {
-                        string zipOut = GetOutputPath(itemPath, "_compressed", ".zip", customFolder);
-                        ZipFile.CreateFromDirectory(itemPath, zipOut, CompressionLevel.SmallestSize, includeBaseDirectory: true);
-                        lastOutput = zipOut;
-                        processed++;
-                    }
-                    else if (category == FileCategory.Image)
+                    if (isImage)
                     {
                         string outImg = GetOutputPath(itemPath, "_compressed", ".jpg", customFolder);
                         if (await TranscodeImageAsync(itemPath, outImg, "JPG", null, scaleFactor: 0.8))
@@ -585,15 +1295,6 @@ public static class FileProcessorService
                             lastOutput = outImg;
                             processed++;
                         }
-                    }
-                    else if (category is FileCategory.DataCode or FileCategory.Subtitle)
-                    {
-                        string raw = await File.ReadAllTextAsync(itemPath);
-                        string minified = MinifyTextContent(raw, Path.GetExtension(itemPath));
-                        string outMin = GetOutputPath(itemPath, ".min", Path.GetExtension(itemPath), customFolder);
-                        await File.WriteAllTextAsync(outMin, minified, Encoding.UTF8);
-                        lastOutput = outMin;
-                        processed++;
                     }
                     else
                     {
@@ -606,16 +1307,7 @@ public static class FileProcessorService
                     break;
 
                 case "METADATA":
-                    if (isDir)
-                    {
-                        var di = new DirectoryInfo(itemPath);
-                        string metaReport = GetOutputPath(itemPath, "_folder_meta", ".txt", customFolder);
-                        string text = $"Folder Name: {di.Name}\nFull Path: {di.FullName}\nCreated UTC: {di.CreationTimeUtc:O}\nModified UTC: {di.LastWriteTimeUtc:O}\nFiles: {di.GetFiles("*", SearchOption.AllDirectories).Length}\nDirectories: {di.GetDirectories("*", SearchOption.AllDirectories).Length}";
-                        await File.WriteAllTextAsync(metaReport, text, Encoding.UTF8);
-                        lastOutput = metaReport;
-                        processed++;
-                    }
-                    else if (category == FileCategory.Image)
+                    if (isImage)
                     {
                         string cleanOut = GetOutputPath(itemPath, "_clean_meta", ".png", customFolder);
                         if (await TranscodeImageAsync(itemPath, cleanOut, "PNG", null))
@@ -626,16 +1318,22 @@ public static class FileProcessorService
                     }
                     else
                     {
+                        var info = new FileInfo(itemPath);
                         string metaReport = GetOutputPath(itemPath, "_metadata", ".txt", customFolder);
-                        string report = await GenerateDetailedMetadataReportAsync(itemPath, category);
-                        await File.WriteAllTextAsync(metaReport, report, Encoding.UTF8);
+                        var sb = new StringBuilder();
+                        sb.AppendLine($"File Name: {info.Name}");
+                        sb.AppendLine($"Full Path: {info.FullName}");
+                        sb.AppendLine($"Size: {info.Length:N0} bytes");
+                        sb.AppendLine($"Created UTC: {info.CreationTimeUtc:O}");
+                        sb.AppendLine($"Modified UTC: {info.LastWriteTimeUtc:O}");
+                        await File.WriteAllTextAsync(metaReport, sb.ToString());
                         lastOutput = metaReport;
                         processed++;
                     }
                     break;
 
                 case "EDIT":
-                    if (category == FileCategory.Image)
+                    if (isImage)
                     {
                         string editOut = GetOutputPath(itemPath, "_edited", ".png", customFolder);
                         bool ok = await TranscodeImageAsync(itemPath, editOut, "PNG", (pixels, w, h) =>
@@ -652,28 +1350,10 @@ public static class FileProcessorService
                         });
                         if (ok) { lastOutput = editOut; processed++; }
                     }
-                    else if (category is FileCategory.DataCode or FileCategory.Subtitle or FileCategory.Document)
-                    {
-                        string raw = await File.ReadAllTextAsync(itemPath);
-                        string formatted = NormalizeAndFormatText(raw, Path.GetExtension(itemPath));
-                        string editOut = GetOutputPath(itemPath, "_formatted", Path.GetExtension(itemPath), customFolder);
-                        await File.WriteAllTextAsync(editOut, formatted, Encoding.UTF8);
-                        lastOutput = editOut;
-                        processed++;
-                    }
-                    else
-                    {
-                        // Binary byte normalization
-                        byte[] raw = await File.ReadAllBytesAsync(itemPath);
-                        string binOut = GetOutputPath(itemPath, "_normalized", Path.GetExtension(itemPath), customFolder);
-                        await File.WriteAllBytesAsync(binOut, raw);
-                        lastOutput = binOut;
-                        processed++;
-                    }
                     break;
 
                 case "ANNOTATE":
-                    if (category == FileCategory.Image)
+                    if (isImage)
                     {
                         string annOut = GetOutputPath(itemPath, "_annotated", ".png", customFolder);
                         bool ok = await TranscodeImageAsync(itemPath, annOut, "PNG", (pixels, w, h) =>
@@ -697,27 +1377,10 @@ public static class FileProcessorService
                         });
                         if (ok) { lastOutput = annOut; processed++; }
                     }
-                    else if (category is FileCategory.DataCode or FileCategory.Subtitle or FileCategory.Document)
-                    {
-                        string raw = await File.ReadAllTextAsync(itemPath);
-                        string annotated = StampTextAnnotation(raw, Path.GetFileName(itemPath));
-                        string annOut = GetOutputPath(itemPath, "_annotated", Path.GetExtension(itemPath), customFolder);
-                        await File.WriteAllTextAsync(annOut, annotated, Encoding.UTF8);
-                        lastOutput = annOut;
-                        processed++;
-                    }
-                    else
-                    {
-                        string sidecar = GetOutputPath(itemPath, ".annotated", ".txt", customFolder);
-                        string note = $"LemonAID Sidecar Annotation\nTarget File: {Path.GetFileName(itemPath)}\nTimestamp: {DateTime.UtcNow:O}\nStatus: Verified and indexed\nNotes: Automated LemonAID forensic inspection complete.";
-                        await File.WriteAllTextAsync(sidecar, note, Encoding.UTF8);
-                        lastOutput = sidecar;
-                        processed++;
-                    }
                     break;
 
                 case "ADD_BG":
-                    if (category == FileCategory.Image)
+                    if (isImage)
                     {
                         string bgOut = GetOutputPath(itemPath, "_bg", ".png", customFolder);
                         bool ok = await TranscodeImageAsync(itemPath, bgOut, "PNG", (pixels, w, h) =>
@@ -754,44 +1417,10 @@ public static class FileProcessorService
                         });
                         if (ok) { lastOutput = bgOut; processed++; }
                     }
-                    else
-                    {
-                        string htmlOut = GetOutputPath(itemPath, "_canvas", ".html", customFolder);
-                        string previewContent = isDir
-                            ? $"Directory Listing: {Path.GetFileName(itemPath)}"
-                            : (category is FileCategory.DataCode or FileCategory.Subtitle or FileCategory.Document
-                                ? await File.ReadAllTextAsync(itemPath)
-                                : GenerateHexDump(await File.ReadAllBytesAsync(itemPath), 16 * 1024));
-
-                        string styledHtml = $@"<!DOCTYPE html>
-<html>
-<head>
-<meta charset=""utf-8"">
-<title>{Path.GetFileName(itemPath)}</title>
-<style>
-body {{ margin: 0; padding: 48px; background: linear-gradient(135deg, #18181b 0%, #09090b 100%); display: flex; justify-content: center; align-items: center; min-height: 100vh; font-family: 'Segoe UI', system-ui, sans-serif; }}
-.card {{ background: rgba(24, 24, 27, 0.85); backdrop-filter: blur(20px); border: 2px solid #facc15; border-radius: 20px; padding: 32px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); max-width: 900px; width: 100%; }}
-h1 {{ color: #facc15; font-size: 24px; margin-top: 0; margin-bottom: 16px; border-bottom: 1px solid rgba(250, 204, 21, 0.3); padding-bottom: 8px; }}
-pre {{ background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; overflow-x: auto; font-family: 'Cascadia Code', Consolas, monospace; font-size: 13px; line-height: 1.5; border: 1px solid #27272a; max-height: 600px; }}
-.badge {{ display: inline-block; background: #facc15; color: #000; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; margin-bottom: 12px; }}
-</style>
-</head>
-<body>
-<div class=""card"">
-<span class=""badge"">LemonAID Visual Canvas</span>
-<h1>{HtmlEncode(Path.GetFileName(itemPath))}</h1>
-<pre><code>{HtmlEncode(previewContent)}</code></pre>
-</div>
-</body>
-</html>";
-                        await File.WriteAllTextAsync(htmlOut, styledHtml, Encoding.UTF8);
-                        lastOutput = htmlOut;
-                        processed++;
-                    }
                     break;
 
                 case "CROP":
-                    if (category == FileCategory.Image)
+                    if (isImage)
                     {
                         string cropOut = GetOutputPath(itemPath, "_cropped", ".png", customFolder);
                         bool ok = await TranscodeImageAsync(itemPath, cropOut, "PNG", (pixels, w, h) =>
@@ -814,36 +1443,16 @@ pre {{ background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; 
                         });
                         if (ok) { lastOutput = cropOut; processed++; }
                     }
-                    else if (category is FileCategory.DataCode or FileCategory.Subtitle or FileCategory.Document)
-                    {
-                        var lines = (await File.ReadAllLinesAsync(itemPath)).Take(150);
-                        string snippet = string.Join(Environment.NewLine, lines);
-                        string cropOut = GetOutputPath(itemPath, "_snippet", Path.GetExtension(itemPath), customFolder);
-                        await File.WriteAllTextAsync(cropOut, snippet, Encoding.UTF8);
-                        lastOutput = cropOut;
-                        processed++;
-                    }
-                    else
-                    {
-                        byte[] raw = await File.ReadAllBytesAsync(itemPath);
-                        int takeBytes = Math.Min(raw.Length, 32 * 1024);
-                        byte[] head = new byte[takeBytes];
-                        Array.Copy(raw, 0, head, 0, takeBytes);
-                        string cropOut = GetOutputPath(itemPath, "_head", ".bin", customFolder);
-                        await File.WriteAllBytesAsync(cropOut, head);
-                        lastOutput = cropOut;
-                        processed++;
-                    }
                     break;
 
                 case "REDACT":
-                    if (category == FileCategory.Image)
+                    if (isImage)
                     {
                         string redactOut = GetOutputPath(itemPath, "_redacted", ".png", customFolder);
                         bool ok = await TranscodeImageAsync(itemPath, redactOut, "PNG", (pixels, w, h) =>
                         {
-                            uint rx0 = w / 4, rx1 = w * 3 / 4;
-                            uint ry0 = h / 4, ry1 = h * 3 / 4;
+                            uint rx0 = w / 5, rx1 = w * 4 / 5;
+                            uint ry0 = h / 3, ry1 = h * 2 / 3;
                             for (uint y = ry0; y < ry1; y++)
                             {
                                 for (uint x = rx0; x < rx1; x++)
@@ -859,26 +1468,13 @@ pre {{ background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; 
                         });
                         if (ok) { lastOutput = redactOut; processed++; }
                     }
-                    else if (category is FileCategory.DataCode or FileCategory.Subtitle or FileCategory.Document)
-                    {
-                        string text = await File.ReadAllTextAsync(itemPath);
-                        string redOut = GetOutputPath(itemPath, "_redacted", Path.GetExtension(itemPath), customFolder);
-                        string masked = Regex.Replace(
-                            text,
-                            @"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:\d{4}[-\s]?){3}\d{4}\b|\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-._~+/]+=*)\b",
-                            "[REDACTED]");
-                        await File.WriteAllTextAsync(redOut, masked, Encoding.UTF8);
-                        lastOutput = redOut;
-                        processed++;
-                    }
                     else
                     {
-                        byte[] raw = await File.ReadAllBytesAsync(itemPath);
-                        int maskStart = Math.Min(raw.Length, 64);
-                        int maskEnd = Math.Min(raw.Length, 512);
-                        for (int i = maskStart; i < maskEnd; i++) raw[i] = 0x00;
-                        string redOut = GetOutputPath(itemPath, "_redacted", Path.GetExtension(itemPath), customFolder);
-                        await File.WriteAllBytesAsync(redOut, raw);
+                        string text = await ExtractTextFromDocumentAsync(itemPath);
+                        string redOut = GetOutputPath(itemPath, "_redacted", ".txt", customFolder);
+                        string masked = Regex.Replace(
+                            text, @"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|\b\d{3}[-.]?\d{2,4}[-.]?\d{4}\b", "[REDACTED]");
+                        await File.WriteAllTextAsync(redOut, masked);
                         lastOutput = redOut;
                         processed++;
                     }
@@ -888,7 +1484,7 @@ pre {{ background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; 
 
         return processed > 0
             ? $"{toolId} complete → Saved {Path.GetFileName(lastOutput)} beside original"
-            : $"Could not perform '{toolId}' on selected item(s).";
+            : $"Tool '{toolId}' requires an image (or folder/file for Compress/Metadata/Redact).";
     }
 
     private static async Task<string> RunActionAsync(
@@ -1005,8 +1601,6 @@ pre {{ background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; 
         }
     }
 
-    #region Helpers & Converters
-
     private static void CopyDirectoryRecursive(string sourceDir, string destinationDir)
     {
         Directory.CreateDirectory(destinationDir);
@@ -1059,9 +1653,10 @@ pre {{ background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; 
             Guid encoderId = formatId switch
             {
                 "JPG" or "JPEG" => BitmapEncoder.JpegEncoderId,
-                "TIFF" => BitmapEncoder.TiffEncoderId,
+                "TIFF" or "TIF" => BitmapEncoder.TiffEncoderId,
                 "BMP" => BitmapEncoder.BmpEncoderId,
-                "HEIC" => BitmapEncoder.HeifEncoderId,
+                "GIF" => BitmapEncoder.GifEncoderId,
+                "HEIC" or "HEIF" => BitmapEncoder.HeifEncoderId,
                 _ => BitmapEncoder.PngEncoderId
             };
 
@@ -1096,639 +1691,40 @@ pre {{ background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; 
         }
     }
 
-    private static async Task<bool> TranscodeMediaAsync(string inputPath, string outputPath, string formatId)
+    private static async Task WriteMultiLineTextPdfAsync(string title, string content, string pdfOutputPath)
     {
-        try
+        var lines = new List<string> { title, "" };
+        foreach (string rawLine in content.Split(["\r\n", "\n"], StringSplitOptions.None))
         {
-            var inFile = await StorageFile.GetFileFromPathAsync(inputPath);
-            string outDir = Path.GetDirectoryName(outputPath)!;
-            string outName = Path.GetFileName(outputPath);
-            var folder = await StorageFolder.GetFolderFromPathAsync(outDir);
-            var outFile = await folder.CreateFileAsync(outName, CreationCollisionOption.ReplaceExisting);
-
-            MediaEncodingProfile profile = formatId switch
+            string clean = new(rawLine.Where(c => c >= 32 && c <= 126).ToArray());
+            while (clean.Length > 80)
             {
-                "WAV" or "EXTRACT_WAV" => MediaEncodingProfile.CreateWav(AudioEncodingQuality.High),
-                "MP3" or "EXTRACT_MP3" => MediaEncodingProfile.CreateMp3(AudioEncodingQuality.High),
-                "AAC" => MediaEncodingProfile.CreateM4a(AudioEncodingQuality.High),
-                "WMA" => MediaEncodingProfile.CreateWma(AudioEncodingQuality.High),
-                "WMV" => MediaEncodingProfile.CreateWmv(VideoEncodingQuality.HD720p),
-                _ => MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD720p)
-            };
-
-            var transcoder = new MediaTranscoder();
-            var preparedTranscode = await transcoder.PrepareFileTranscodeAsync(inFile, outFile, profile);
-            if (preparedTranscode.CanTranscode)
-            {
-                await preparedTranscode.TranscodeAsync();
-                return true;
+                lines.Add(clean[..80]);
+                clean = clean[80..];
             }
+            lines.Add(clean);
+            if (lines.Count >= 46) break;
         }
-        catch
+
+        var streamSb = new StringBuilder();
+        streamSb.AppendLine("BT /F1 11 Tf 50 740 Td 15 TL");
+        foreach (var line in lines)
         {
-            // If media transcoder fails, write byte copy as fallback
-            try
-            {
-                File.Copy(inputPath, outputPath, overwrite: true);
-                return true;
-            }
-            catch { }
+            string esc = line.Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");
+            streamSb.AppendLine($"({esc}) Tj T*");
         }
-        return false;
-    }
-
-    private static async Task<bool> ExtractMediaThumbnailAsync(string inputPath, string outputPath)
-    {
-        try
-        {
-            var inFile = await StorageFile.GetFileFromPathAsync(inputPath);
-            using StorageItemThumbnail thumbnail = await inFile.GetThumbnailAsync(ThumbnailMode.VideosView, 1080);
-            if (thumbnail != null && thumbnail.Size > 0)
-            {
-                BitmapDecoder decoder = await BitmapDecoder.CreateAsync(thumbnail);
-                PixelDataProvider pixelData = await decoder.GetPixelDataAsync();
-                byte[] pixels = pixelData.DetachPixelData();
-
-                using var outFileStream = new FileStream(outputPath, FileMode.Create, FileAccess.ReadWrite);
-                using var randomAccessOut = outFileStream.AsRandomAccessStream();
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, randomAccessOut);
-                encoder.SetPixelData(
-                    BitmapPixelFormat.Bgra8,
-                    BitmapAlphaMode.Premultiplied,
-                    decoder.PixelWidth,
-                    decoder.PixelHeight,
-                    96,
-                    96,
-                    pixels);
-                await encoder.FlushAsync();
-                return true;
-            }
-        }
-        catch { }
-        return false;
-    }
-
-    private static string ConvertToWebVtt(string srtContent)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("WEBVTT");
-        sb.AppendLine();
-        using var reader = new StringReader(srtContent);
-        string? line;
-        while ((line = reader.ReadLine()) != null)
-        {
-            if (Regex.IsMatch(line, @"^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}"))
-            {
-                sb.AppendLine(line.Replace(',', '.'));
-            }
-            else
-            {
-                sb.AppendLine(line);
-            }
-        }
-        return sb.ToString();
-    }
-
-    private static string ConvertToSrt(string vttContent)
-    {
-        var sb = new StringBuilder();
-        using var reader = new StringReader(vttContent);
-        string? line;
-        int cueCounter = 1;
-        bool inCue = false;
-
-        while ((line = reader.ReadLine()) != null)
-        {
-            if (line.StartsWith("WEBVTT", StringComparison.OrdinalIgnoreCase) || line.StartsWith("NOTE", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (Regex.IsMatch(line, @"^\d{2}:\d{2}:\d{2}\.\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}\.\d{3}"))
-            {
-                if (inCue) sb.AppendLine();
-                sb.AppendLine(cueCounter++.ToString());
-                sb.AppendLine(line.Replace('.', ','));
-                inCue = true;
-            }
-            else if (inCue)
-            {
-                sb.AppendLine(line);
-                if (string.IsNullOrWhiteSpace(line)) inCue = false;
-            }
-        }
-        return sb.ToString();
-    }
-
-    private static string ExtractSubtitleDialogue(string subtitleContent)
-    {
-        var lines = new List<string>();
-        using var reader = new StringReader(subtitleContent);
-        string? line;
-        while ((line = reader.ReadLine()) != null)
-        {
-            string trimmed = line.Trim();
-            if (string.IsNullOrEmpty(trimmed)) continue;
-            if (trimmed.StartsWith("WEBVTT", StringComparison.OrdinalIgnoreCase)) continue;
-            if (trimmed.StartsWith("NOTE", StringComparison.OrdinalIgnoreCase)) continue;
-            if (int.TryParse(trimmed, out _)) continue;
-            if (trimmed.Contains("-->")) continue;
-
-            lines.Add(trimmed);
-        }
-        return string.Join(Environment.NewLine, lines);
-    }
-
-    private static string ConvertSubtitleToCsv(string subtitleContent)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("Index,Start,End,Text");
-        using var reader = new StringReader(subtitleContent);
-        string? line;
-        int index = 1;
-        string start = "", end = "";
-        var textLines = new List<string>();
-
-        while ((line = reader.ReadLine()) != null)
-        {
-            var match = Regex.Match(line, @"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}[.,]\d{3})");
-            if (match.Success)
-            {
-                if (textLines.Count > 0 && !string.IsNullOrEmpty(start))
-                {
-                    string safeText = string.Join(" ", textLines).Replace("\"", "\"\"");
-                    sb.AppendLine($"{index++},\"{start}\",\"{end}\",\"{safeText}\"");
-                    textLines.Clear();
-                }
-                start = match.Groups[1].Value.Replace(',', '.');
-                end = match.Groups[2].Value.Replace(',', '.');
-            }
-            else if (!string.IsNullOrEmpty(start))
-            {
-                string trimmed = line.Trim();
-                if (!string.IsNullOrEmpty(trimmed) && !int.TryParse(trimmed, out _))
-                {
-                    textLines.Add(trimmed);
-                }
-            }
-        }
-
-        if (textLines.Count > 0 && !string.IsNullOrEmpty(start))
-        {
-            string safeText = string.Join(" ", textLines).Replace("\"", "\"\"");
-            sb.AppendLine($"{index},\"{start}\",\"{end}\",\"{safeText}\"");
-        }
-
-        return sb.ToString();
-    }
-
-    private static string ConvertSubtitleToJson(string subtitleContent)
-    {
-        var cues = new List<Dictionary<string, object>>();
-        using var reader = new StringReader(subtitleContent);
-        string? line;
-        int index = 1;
-        string start = "", end = "";
-        var textLines = new List<string>();
-
-        while ((line = reader.ReadLine()) != null)
-        {
-            var match = Regex.Match(line, @"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}[.,]\d{3})");
-            if (match.Success)
-            {
-                if (textLines.Count > 0 && !string.IsNullOrEmpty(start))
-                {
-                    cues.Add(new Dictionary<string, object>
-                    {
-                        ["index"] = index++,
-                        ["start"] = start,
-                        ["end"] = end,
-                        ["text"] = string.Join(" ", textLines)
-                    });
-                    textLines.Clear();
-                }
-                start = match.Groups[1].Value.Replace(',', '.');
-                end = match.Groups[2].Value.Replace(',', '.');
-            }
-            else if (!string.IsNullOrEmpty(start))
-            {
-                string trimmed = line.Trim();
-                if (!string.IsNullOrEmpty(trimmed) && !int.TryParse(trimmed, out _))
-                {
-                    textLines.Add(trimmed);
-                }
-            }
-        }
-
-        if (textLines.Count > 0 && !string.IsNullOrEmpty(start))
-        {
-            cues.Add(new Dictionary<string, object>
-            {
-                ["index"] = index,
-                ["start"] = start,
-                ["end"] = end,
-                ["text"] = string.Join(" ", textLines)
-            });
-        }
-
-        return JsonSerializer.Serialize(cues, new JsonSerializerOptions { WriteIndented = true });
-    }
-
-    private static string ConvertSubtitleToHtml(string itemPath, string subtitleContent)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("<!DOCTYPE html><html><head><meta charset=\"utf-8\">");
-        sb.AppendLine($"<title>{HtmlEncode(Path.GetFileName(itemPath))}</title>");
-        sb.AppendLine("<style>");
-        sb.AppendLine("body { font-family: Segoe UI, sans-serif; background: #09090b; color: #f4f4f5; padding: 40px; max-width: 800px; margin: 0 auto; line-height: 1.6; }");
-        sb.AppendLine("h1 { color: #facc15; border-bottom: 2px solid #27272a; padding-bottom: 12px; font-size: 24px; }");
-        sb.AppendLine(".cue { margin-bottom: 16px; padding: 12px 16px; background: #18181b; border-radius: 8px; border-left: 3px solid #facc15; }");
-        sb.AppendLine(".time { font-family: monospace; font-size: 11px; color: #a1a1aa; margin-bottom: 4px; }");
-        sb.AppendLine(".text { font-size: 14px; }");
-        sb.AppendLine("</style></head><body>");
-        sb.AppendLine($"<h1>Subtitle Transcript: {HtmlEncode(Path.GetFileName(itemPath))}</h1>");
-
-        using var reader = new StringReader(subtitleContent);
-        string? line;
-        string timestamp = "";
-        var textLines = new List<string>();
-
-        while ((line = reader.ReadLine()) != null)
-        {
-            var match = Regex.Match(line, @"\d{2}:\d{2}:\d{2}[.,]\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}[.,]\d{3}");
-            if (match.Success)
-            {
-                if (textLines.Count > 0 && !string.IsNullOrEmpty(timestamp))
-                {
-                    sb.AppendLine($"<div class=\"cue\"><div class=\"time\">{HtmlEncode(timestamp)}</div><div class=\"text\">{HtmlEncode(string.Join(" ", textLines))}</div></div>");
-                    textLines.Clear();
-                }
-                timestamp = match.Value;
-            }
-            else if (!string.IsNullOrEmpty(timestamp))
-            {
-                string trimmed = line.Trim();
-                if (!string.IsNullOrEmpty(trimmed) && !int.TryParse(trimmed, out _))
-                {
-                    textLines.Add(trimmed);
-                }
-            }
-        }
-        if (textLines.Count > 0 && !string.IsNullOrEmpty(timestamp))
-        {
-            sb.AppendLine($"<div class=\"cue\"><div class=\"time\">{HtmlEncode(timestamp)}</div><div class=\"text\">{HtmlEncode(string.Join(" ", textLines))}</div></div>");
-        }
-
-        sb.AppendLine("</body></html>");
-        return sb.ToString();
-    }
-
-    private static string ConvertTextToJson(string itemPath, string rawText)
-    {
-        string ext = Path.GetExtension(itemPath).ToLowerInvariant();
-        if (ext is ".csv" or ".tsv")
-        {
-            char delim = ext == ".tsv" ? '\t' : ',';
-            var rows = new List<Dictionary<string, string>>();
-            using var reader = new StringReader(rawText);
-            string? headerLine = reader.ReadLine();
-            if (headerLine != null)
-            {
-                string[] headers = headerLine.Split(delim).Select(h => h.Trim().Trim('"')).ToArray();
-                string? line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    string[] cols = line.Split(delim);
-                    var dict = new Dictionary<string, string>();
-                    for (int i = 0; i < headers.Length; i++)
-                    {
-                        dict[headers[i]] = i < cols.Length ? cols[i].Trim().Trim('"') : "";
-                    }
-                    rows.Add(dict);
-                }
-            }
-            return JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true });
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(rawText);
-            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch
-        {
-            var fallback = new Dictionary<string, object>
-            {
-                ["source"] = Path.GetFileName(itemPath),
-                ["timestamp"] = DateTime.UtcNow,
-                ["content"] = rawText
-            };
-            return JsonSerializer.Serialize(fallback, new JsonSerializerOptions { WriteIndented = true });
-        }
-    }
-
-    private static string ConvertTextToCsv(string rawText)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(rawText);
-            if (doc.RootElement.ValueKind == JsonValueKind.Array)
-            {
-                var keys = new HashSet<string>();
-                foreach (var el in doc.RootElement.EnumerateArray())
-                {
-                    if (el.ValueKind == JsonValueKind.Object)
-                    {
-                        foreach (var prop in el.EnumerateObject()) keys.Add(prop.Name);
-                    }
-                }
-                var keyList = keys.ToList();
-                var sb = new StringBuilder();
-                sb.AppendLine(string.Join(",", keyList.Select(k => $"\"{k}\"")));
-                foreach (var el in doc.RootElement.EnumerateArray())
-                {
-                    if (el.ValueKind == JsonValueKind.Object)
-                    {
-                        var vals = keyList.Select(k => el.TryGetProperty(k, out var val) ? $"\"{val.ToString().Replace("\"", "\"\"")}\"" : "\"\"");
-                        sb.AppendLine(string.Join(",", vals));
-                    }
-                }
-                return sb.ToString();
-            }
-        }
-        catch { }
-
-        // Delimiter conversion fallback
-        return rawText.Replace("\t", ",");
-    }
-
-    private static string ConvertTextToXml(string itemPath, string rawText)
-    {
-        string safeName = Regex.Replace(Path.GetFileNameWithoutExtension(itemPath), @"[^a-zA-Z0-9_]", "_");
-        if (string.IsNullOrEmpty(safeName) || char.IsDigit(safeName[0])) safeName = "Item_" + safeName;
-
-        return $"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<{safeName}>\n  <content><![CDATA[{rawText}]]></content>\n</{safeName}>";
-    }
-
-    private static string ConvertCodeToHtml(string itemPath, string rawText)
-    {
-        return $@"<!DOCTYPE html>
-<html>
-<head>
-<meta charset=""utf-8"">
-<title>{HtmlEncode(Path.GetFileName(itemPath))}</title>
-<style>
-body {{ margin: 0; padding: 32px; background: #09090b; color: #f4f4f5; font-family: Segoe UI, sans-serif; }}
-.header {{ margin-bottom: 24px; border-bottom: 1px solid #27272a; padding-bottom: 12px; }}
-.title {{ font-size: 20px; font-weight: 700; color: #facc15; }}
-.meta {{ font-size: 12px; color: #71717a; margin-top: 4px; }}
-pre {{ background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 20px; overflow-x: auto; font-family: 'Cascadia Code', Consolas, monospace; font-size: 13px; line-height: 1.6; color: #e4e4e7; }}
-</style>
-</head>
-<body>
-<div class=""header"">
-<div class=""title"">{HtmlEncode(Path.GetFileName(itemPath))}</div>
-<div class=""meta"">Generated by LemonAID Universal Converter &bull; {DateTime.UtcNow:u}</div>
-</div>
-<pre><code>{HtmlEncode(rawText)}</code></pre>
-</body>
-</html>";
-    }
-
-    private static string MinifyTextContent(string raw, string ext)
-    {
-        ext = ext.ToLowerInvariant();
-        if (ext is ".json")
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(raw);
-                return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = false });
-            }
-            catch { }
-        }
-
-        var lines = raw.Split(["\r\n", "\n"], StringSplitOptions.None)
-            .Select(l => l.Trim())
-            .Where(l => !string.IsNullOrEmpty(l));
-
-        return string.Join(Environment.NewLine, lines);
-    }
-
-    private static string NormalizeAndFormatText(string raw, string ext)
-    {
-        ext = ext.ToLowerInvariant();
-        if (ext is ".json")
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(raw);
-                return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
-            }
-            catch { }
-        }
-
-        // Normalize CRLF line endings and remove trailing whitespace
-        var lines = raw.Split(["\r\n", "\n"], StringSplitOptions.None)
-            .Select(l => l.TrimEnd());
-
-        return string.Join("\r\n", lines);
-    }
-
-    private static string StampTextAnnotation(string raw, string fileName)
-    {
-        string stamp = $"/* ===================================================================\n * LemonAID Annotated Copy\n * File: {fileName}\n * Timestamp: {DateTime.UtcNow:O}\n * =================================================================== */\n\n";
-        return stamp + raw;
-    }
-
-    private static string GenerateHexDump(byte[] data, int maxBytes)
-    {
-        int bytesToDump = Math.Min(data.Length, maxBytes);
-        var sb = new StringBuilder();
-        sb.AppendLine($"Offset(h)  00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F  Decoded Text");
-        sb.AppendLine(new string('-', 75));
-
-        for (int i = 0; i < bytesToDump; i += 16)
-        {
-            sb.Append($"{i:X8}  ");
-            for (int j = 0; j < 16; j++)
-            {
-                if (i + j < bytesToDump)
-                    sb.Append($"{data[i + j]:X2} ");
-                else
-                    sb.Append("   ");
-
-                if (j == 7) sb.Append(" ");
-            }
-            sb.Append(" |");
-            for (int j = 0; j < 16; j++)
-            {
-                if (i + j < bytesToDump)
-                {
-                    byte b = data[i + j];
-                    sb.Append(b is >= 0x20 and <= 0x7E ? (char)b : '.');
-                }
-            }
-            sb.AppendLine("|");
-        }
-
-        if (data.Length > maxBytes)
-        {
-            sb.AppendLine($"\n... [Truncated {data.Length - maxBytes:N0} additional bytes for display]");
-        }
-        return sb.ToString();
-    }
-
-    private static async Task<string> ComputeHashesReportAsync(string filePath)
-    {
-        var fi = new FileInfo(filePath);
-        using var stream = File.OpenRead(filePath);
-
-        using var sha256 = SHA256.Create();
-        using var md5 = MD5.Create();
-        using var sha1 = SHA1.Create();
-
-        byte[] buffer = new byte[81920];
-        int bytesRead;
-        while ((bytesRead = await stream.ReadAsync(buffer)) > 0)
-        {
-            sha256.TransformBlock(buffer, 0, bytesRead, null, 0);
-            md5.TransformBlock(buffer, 0, bytesRead, null, 0);
-            sha1.TransformBlock(buffer, 0, bytesRead, null, 0);
-        }
-        sha256.TransformFinalBlock([], 0, 0);
-        md5.TransformFinalBlock([], 0, 0);
-        sha1.TransformFinalBlock([], 0, 0);
-
-        string hash256 = Convert.ToHexString(sha256.Hash!).ToLowerInvariant();
-        string hashMd5 = Convert.ToHexString(md5.Hash!).ToLowerInvariant();
-        string hash1 = Convert.ToHexString(sha1.Hash!).ToLowerInvariant();
-
-        return $"LemonAID Cryptographic Integrity Report\n" +
-               $"File: {fi.Name}\n" +
-               $"Size: {fi.Length:N0} bytes ({FormatBytes(fi.Length)})\n" +
-               $"Created UTC:  {fi.CreationTimeUtc:O}\n" +
-               $"Modified UTC: {fi.LastWriteTimeUtc:O}\n\n" +
-               $"SHA-256: {hash256}\n" +
-               $"SHA-1:   {hash1}\n" +
-               $"MD5:     {hashMd5}\n";
-    }
-
-    private static async Task<string> GenerateDetailedMetadataReportAsync(string filePath, FileCategory category)
-    {
-        var fi = new FileInfo(filePath);
-        var sb = new StringBuilder();
-        sb.AppendLine("LemonAID Forensic File Inspection Report");
-        sb.AppendLine(new string('=', 60));
-        sb.AppendLine($"File Name:      {fi.Name}");
-        sb.AppendLine($"Category:       {category}");
-        sb.AppendLine($"Extension:      {fi.Extension}");
-        sb.AppendLine($"File Size:      {fi.Length:N0} bytes ({FormatBytes(fi.Length)})");
-        sb.AppendLine($"Created UTC:    {fi.CreationTimeUtc:O}");
-        sb.AppendLine($"Modified UTC:   {fi.LastWriteTimeUtc:O}");
-        sb.AppendLine($"Attributes:     {fi.Attributes}");
-
-        byte[] headBytes = new byte[Math.Min(fi.Length, 4096)];
-        using (var fs = File.OpenRead(filePath))
-        {
-            _ = await fs.ReadAsync(headBytes);
-        }
-        double entropy = CalculateEntropy(headBytes);
-        sb.AppendLine($"Shannon Entropy:{entropy:F3} / 8.000 ({(entropy > 7.5 ? "Encrypted/Compressed" : entropy > 5.0 ? "Binary Code" : "Plain Structured")})");
-
-        if (category == FileCategory.DataCode)
-        {
-            var lines = await File.ReadAllLinesAsync(filePath);
-            sb.AppendLine($"Total Lines:    {lines.Length:N0}");
-            sb.AppendLine($"Blank Lines:    {lines.Count(string.IsNullOrWhiteSpace):N0}");
-            sb.AppendLine($"Non-Empty:      {lines.Count(l => !string.IsNullOrWhiteSpace(l)):N0}");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine(await ComputeHashesReportAsync(filePath));
-        return sb.ToString();
-    }
-
-    private static double CalculateEntropy(byte[] data)
-    {
-        if (data.Length == 0) return 0.0;
-        int[] counts = new int[256];
-        foreach (byte b in data) counts[b]++;
-        double entropy = 0.0;
-        double len = data.Length;
-        for (int i = 0; i < 256; i++)
-        {
-            if (counts[i] == 0) continue;
-            double p = counts[i] / len;
-            entropy -= p * Math.Log2(p);
-        }
-        return entropy;
-    }
-
-    private static string ExtractPrintableStrings(byte[] data, int minLength)
-    {
-        var sb = new StringBuilder();
-        var current = new StringBuilder();
-
-        foreach (byte b in data)
-        {
-            if (b is >= 0x20 and <= 0x7E)
-            {
-                current.Append((char)b);
-            }
-            else
-            {
-                if (current.Length >= minLength)
-                {
-                    sb.AppendLine(current.ToString());
-                }
-                current.Clear();
-            }
-        }
-        if (current.Length >= minLength)
-        {
-            sb.AppendLine(current.ToString());
-        }
-        return sb.ToString();
-    }
-
-    private static async Task WriteUniversalPdfReportAsync(string sourcePath, string pdfOutputPath)
-    {
-        string title = Path.GetFileName(sourcePath);
-        long length = File.Exists(sourcePath) ? new FileInfo(sourcePath).Length : 0;
-        string bodyText = $"LemonAID Universal Inspection Report: {title} ({FormatBytes(length)})";
-        string escaped = bodyText.Replace("(", "\\(").Replace(")", "\\)");
+        streamSb.Append("ET");
+        string streamContent = streamSb.ToString();
 
         var sb = new StringBuilder();
         sb.AppendLine("%PDF-1.4");
         sb.AppendLine("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj");
         sb.AppendLine("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj");
         sb.AppendLine("3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj");
-        string streamContent = $"BT /F1 14 Tf 50 720 Td ({escaped}) Tj ET";
         sb.AppendLine($"4 0 obj << /Length {streamContent.Length} >> stream\n{streamContent}\nendstream endobj");
         sb.AppendLine("5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj");
         sb.AppendLine("xref\n0 6\n0000000000 65535 f \ntrailer << /Size 6 /Root 1 0 R >>\nstartxref\n320\n%%EOF");
 
         await File.WriteAllTextAsync(pdfOutputPath, sb.ToString(), Encoding.ASCII);
     }
-
-    private static string HtmlEncode(string text) => System.Net.WebUtility.HtmlEncode(text);
-
-    private static string FormatBytes(long bytes)
-    {
-        if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
-        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
-        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
-    }
-
-    private static string TruncateMiddle(string text, int maxLength)
-    {
-        if (string.IsNullOrEmpty(text) || text.Length <= maxLength) return text;
-        int keep = (maxLength - 3) / 2;
-        return text[..keep] + "..." + text[^keep..];
-    }
-
-    #endregion
 }

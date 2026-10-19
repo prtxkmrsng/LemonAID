@@ -63,7 +63,10 @@ public static class ThemeService
         CurrentBackdrop = preference;
         foreach (var win in windows)
         {
-            if (win != null) ApplyBackdropToWindow(win, isTransientOverlay: win is RadialOverlayWindow);
+            if (win != null && win is not RadialOverlayWindow)
+            {
+                ApplyBackdropToWindow(win, isTransientOverlay: false);
+            }
         }
         PaletteChanged?.Invoke(GetCurrentPalette());
     }
@@ -83,7 +86,18 @@ public static class ThemeService
 
     public static void ApplyBackdropToWindow(Window window, bool isTransientOverlay = false)
     {
-        if (isTransientOverlay || CurrentBackdrop == BackdropPreference.Acrylic)
+        // Never apply a rectangular DWM SystemBackdrop or TitleBar extension to RadialOverlayWindow,
+        // as DWM draws a square bounding box that ignores circular SetWindowRgn clipping.
+        if (window is RadialOverlayWindow || isTransientOverlay)
+        {
+            if (window.Content is FrameworkElement overlayRoot)
+            {
+                overlayRoot.RequestedTheme = CurrentThemeOverride;
+            }
+            return;
+        }
+
+        if (CurrentBackdrop == BackdropPreference.Acrylic)
         {
             window.SystemBackdrop = new DesktopAcrylicBackdrop();
         }
@@ -102,6 +116,8 @@ public static class ThemeService
 
     public static void StyleTitleBarButtons(Window window)
     {
+        if (window is RadialOverlayWindow) return;
+
         try
         {
             if (!AppWindowTitleBar.IsCustomizationSupported()) return;
@@ -155,14 +171,14 @@ public static class ThemeService
                 AccentLight2: accentLight2,
                 AccentDark1: accentDark1,
                 TextPrimary: Color.FromArgb(255, 248, 250, 252),
-                TextSecondary: Color.FromArgb(210, 148, 163, 184),
+                TextSecondary: Color.FromArgb(200, 203, 213, 225),
                 TextOnAccent: textOnAccent,
-                SurfaceCardFill: Color.FromArgb(140, 24, 27, 34),
-                SurfaceStroke: Color.FromArgb(32, 255, 255, 255),
-                WedgeFill: Color.FromArgb(160, 32, 36, 45),
-                WedgeStroke: Color.FromArgb(36, 255, 255, 255),
-                WheelRingFill: Color.FromArgb(90, 16, 18, 24),
-                WheelCenterFill: Color.FromArgb(225, 20, 23, 29));
+                SurfaceCardFill: Color.FromArgb(110, 28, 30, 36),
+                SurfaceStroke: Color.FromArgb(75, accentLight2.R, accentLight2.G, accentLight2.B),
+                WedgeFill: Color.FromArgb(235, 32, 34, 42),
+                WedgeStroke: Color.FromArgb(115, accentLight1.R, accentLight1.G, accentLight1.B),
+                WheelRingFill: Color.FromArgb(255, 20, 22, 28),
+                WheelCenterFill: Color.FromArgb(255, 16, 18, 24));
         }
         else
         {
@@ -173,14 +189,14 @@ public static class ThemeService
                 AccentLight2: accentLight2,
                 AccentDark1: accentDark1,
                 TextPrimary: Color.FromArgb(255, 15, 23, 42),
-                TextSecondary: Color.FromArgb(220, 71, 85, 105),
+                TextSecondary: Color.FromArgb(200, 71, 85, 105),
                 TextOnAccent: textOnAccent,
-                SurfaceCardFill: Color.FromArgb(195, 255, 255, 255),
-                SurfaceStroke: Color.FromArgb(24, 0, 0, 0),
-                WedgeFill: Color.FromArgb(210, 248, 250, 252),
-                WedgeStroke: Color.FromArgb(20, 0, 0, 0),
-                WheelRingFill: Color.FromArgb(120, 241, 245, 249),
-                WheelCenterFill: Color.FromArgb(235, 255, 255, 255));
+                SurfaceCardFill: Color.FromArgb(145, 255, 255, 255),
+                SurfaceStroke: Color.FromArgb(85, accent.R, accent.G, accent.B),
+                WedgeFill: Color.FromArgb(240, 248, 250, 252),
+                WedgeStroke: Color.FromArgb(120, accent.R, accent.G, accent.B),
+                WheelRingFill: Color.FromArgb(255, 241, 245, 249),
+                WheelCenterFill: Color.FromArgb(255, 255, 255, 255));
         }
     }
 }

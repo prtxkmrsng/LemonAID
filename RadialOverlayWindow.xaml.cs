@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using LemonAID.Services;
@@ -20,6 +19,26 @@ public sealed partial class RadialOverlayWindow : Window
 {
     private const int LogicalDiameter = 380;
 
+    private const int GWL_STYLE = -16;
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_CAPTION = 0x00C00000L;
+    private const long WS_THICKFRAME = 0x00040000L;
+    private const long WS_BORDER = 0x00800000L;
+    private const long WS_DLGFRAME = 0x00400000L;
+    private const long WS_SYSMENU = 0x00080000L;
+    private const long WS_EX_DLGMODALFRAME = 0x00000001L;
+    private const long WS_EX_WINDOWEDGE = 0x00000100L;
+    private const long WS_EX_CLIENTEDGE = 0x00000200L;
+    private const long WS_EX_TOOLWINDOW = 0x00000080L;
+
+    private const int DWMWA_NCRENDERING_POLICY = 2;
+    private const int DWMNCRP_DISABLED = 1;
+    private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWCP_DONOTROUND = 1;
+    private const int DWMWA_BORDER_COLOR = 34;
+    private const uint DWMWA_COLOR_NONE = 0xFFFFFFFE;
+
     private readonly IntPtr _hwnd;
     private WheelMode _currentMode = WheelMode.Converter;
     private readonly List<string> _activePaths = [];
@@ -38,9 +57,6 @@ public sealed partial class RadialOverlayWindow : Window
         InitializeComponent();
         _hwnd = WindowNative.GetWindowHandle(this);
 
-        ThemeService.ApplyBackdropToWindow(this, isTransientOverlay: true);
-        ThemeService.PaletteChanged += _ => RebuildWedgeVisuals();
-
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
@@ -51,6 +67,42 @@ public sealed partial class RadialOverlayWindow : Window
         }
 
         AppWindow.IsShownInSwitchers = false;
+        StripSquareWindowFrame();
+
+        ThemeService.ApplyBackdropToWindow(this, isTransientOverlay: true);
+        ThemeService.PaletteChanged += _ => RebuildWedgeVisuals();
+    }
+
+    private void StripSquareWindowFrame()
+    {
+        try
+        {
+            long style = GetWindowLongPtr(_hwnd, GWL_STYLE).ToInt64();
+            style &= ~(WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME | WS_SYSMENU);
+            SetWindowLongPtr(_hwnd, GWL_STYLE, new IntPtr(style));
+
+            long exStyle = GetWindowLongPtr(_hwnd, GWL_EXSTYLE).ToInt64();
+            exStyle &= ~(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE);
+            exStyle |= WS_EX_TOOLWINDOW;
+            SetWindowLongPtr(_hwnd, GWL_EXSTYLE, new IntPtr(exStyle));
+
+            // Disable DWM rectangular non-client shadow & border so SetWindowRgn circle is strictly respected
+            int ncPolicy = DWMNCRP_DISABLED;
+            DwmSetWindowAttribute(_hwnd, DWMWA_NCRENDERING_POLICY, ref ncPolicy, sizeof(int));
+
+            int disableTransitions = 1;
+            DwmSetWindowAttribute(_hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, ref disableTransitions, sizeof(int));
+
+            int cornerPref = DWMWCP_DONOTROUND;
+            DwmSetWindowAttribute(_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPref, sizeof(int));
+
+            uint borderNone = DWMWA_COLOR_NONE;
+            DwmSetWindowAttribute(_hwnd, DWMWA_BORDER_COLOR, ref borderNone, sizeof(uint));
+        }
+        catch
+        {
+            // Ignore on older OS builds
+        }
     }
 
     public void SummonAtCursor(int screenX, int screenY, WheelMode mode, IReadOnlyList<string> detectedPaths)
@@ -65,6 +117,8 @@ public sealed partial class RadialOverlayWindow : Window
             _activePaths.Add(p);
         }
 
+        StripSquareWindowFrame();
+
         uint dpi = GetDpiForWindow(_hwnd);
         _dpiScale = dpi > 0 ? dpi / 96.0 : 1.0;
         int physDiameter = (int)Math.Round(LogicalDiameter * _dpiScale);
@@ -74,7 +128,8 @@ public sealed partial class RadialOverlayWindow : Window
 
         AppWindow.MoveAndResize(new RectInt32(left, top, physDiameter, physDiameter));
 
-        IntPtr hRgn = CreateEllipticRgn(0, 0, physDiameter, physDiameter);
+        // Clip 1px inside the outer diameter so anti-aliased edges never show square corners
+        IntPtr hRgn = CreateEllipticRgn(1, 1, physDiameter - 1, physDiameter - 1);
         SetWindowRgn(_hwnd, hRgn, true);
 
         SwitchModeInternal(mode, playModeFeedback: false);
@@ -107,9 +162,10 @@ public sealed partial class RadialOverlayWindow : Window
         _sectors = FileProcessorService.GetSectorsForMode(mode, _activePaths);
         _selectedSectorIndex = -1;
 
+        string categoryLabel = FileProcessorService.DetectCategoryBadge(_activePaths);
         OverlayModeBadge.Text = mode switch
         {
-            WheelMode.Converter => "SHIFT · CONVERTER",
+            WheelMode.Converter => $"SHIFT · {categoryLabel}",
             WheelMode.Tools => "ALT · FILE TOOLS",
             WheelMode.Actions => "CTRL · ACTIONS",
             _ => "LEMONAID"
@@ -217,10 +273,10 @@ public sealed partial class RadialOverlayWindow : Window
         var palette = ThemeService.GetCurrentPalette();
 
         OuterRingEllipse.Fill = new SolidColorBrush(palette.WheelRingFill);
-        OuterRingEllipse.Stroke = new SolidColorBrush(palette.SurfaceStroke);
+        OuterRingEllipse.Stroke = new SolidColorBrush(palette.Accent);
 
         CenterHubBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
-        CenterHubBorder.BorderBrush = new SolidColorBrush(palette.SurfaceStroke);
+        CenterHubBorder.BorderBrush = new SolidColorBrush(palette.Accent);
 
         OverlayModeBadge.Foreground = new SolidColorBrush(palette.Accent);
         OverlaySizeText.Foreground = new SolidColorBrush(palette.TextPrimary);
@@ -234,8 +290,8 @@ public sealed partial class RadialOverlayWindow : Window
 
         const double cx = 190.0;
         const double cy = 190.0;
-        const double rIn = 66.0;
-        const double rOut = 172.0;
+        const double rIn = 64.0;
+        const double rOut = 162.0; // Leaves room for 8.5px radial pop-out inside the 190px circle radius
         const double gapDeg = 4.0;
 
         double sweep = 360.0 / count;
@@ -354,6 +410,7 @@ public sealed partial class RadialOverlayWindow : Window
         return new Microsoft.UI.Xaml.Shapes.Path
         {
             Data = geo,
+            UseSystemFocusVisuals = false,
             Fill = new SolidColorBrush(isSelected ? palette.Accent : palette.WedgeFill),
             Stroke = new SolidColorBrush(isSelected ? palette.AccentLight2 : palette.WedgeStroke),
             StrokeThickness = 1.5
@@ -416,4 +473,16 @@ public sealed partial class RadialOverlayWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref uint pvAttribute, int cbAttribute);
 }

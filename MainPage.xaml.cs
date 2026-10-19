@@ -33,7 +33,7 @@ public sealed partial class MainPage : Page
     private int _selectedSectorIndex = -1;
     private string? _customOutputFolder;
     private int _onboardingStep = 0;
-    private bool _isSyncingSettings = true;
+    private bool _isSyncingSettings;
 
     public MainPage()
     {
@@ -57,9 +57,12 @@ public sealed partial class MainPage : Page
         Loaded += (_, _) =>
         {
             SyncSettingsUIFromService();
-            OnboardingOverlay.Visibility = BackgroundSettingsService.Current.OnboardingCompleted
-                ? Visibility.Collapsed
-                : Visibility.Visible;
+
+            // Show onboarding ONLY once on the very first launch after installation
+            bool showFirstRunOnboarding = BackgroundSettingsService.ConsumeFirstLaunchOnboarding();
+            OnboardingOverlay.Visibility = showFirstRunOnboarding
+                ? Visibility.Visible
+                : Visibility.Collapsed;
 
             if (!string.IsNullOrWhiteSpace(_customOutputFolder))
             {
@@ -68,11 +71,13 @@ public sealed partial class MainPage : Page
             }
 
             ApplyDynamicPalette();
-            UpdateOnboardingUI();
+            if (showFirstRunOnboarding)
+            {
+                UpdateOnboardingUI();
+            }
             SwitchMode(WheelMode.Converter, animateAndSound: false);
             WheelAnimationHelper.AnimateWheelSummon(MainWheelContainer, MainWheelTransform, MainCenterHubTransform);
             Focus(FocusState.Programmatic);
-            _isSyncingSettings = false;
         };
     }
 
@@ -80,22 +85,19 @@ public sealed partial class MainPage : Page
     {
         _isSyncingSettings = true;
         var s = BackgroundSettingsService.Current;
-        if (SettingsAnimationsToggle != null) SettingsAnimationsToggle.IsOn = s.AnimationsEnabled;
-        if (SettingsSoundToggle != null) SettingsSoundToggle.IsOn = s.SoundFeedbackEnabled;
-        if (SettingsHapticsToggle != null) SettingsHapticsToggle.IsOn = s.HapticFeedbackEnabled;
-        if (SettingsCloseToTrayToggle != null) SettingsCloseToTrayToggle.IsOn = s.CloseToTray;
-        if (SettingsStartHeadlessToggle != null) SettingsStartHeadlessToggle.IsOn = s.StartMinimizedHeadless;
-        if (SettingsLaunchToggle != null) SettingsLaunchToggle.IsOn = s.LaunchAtLogin;
-        if (LaunchAtLoginToggle != null) LaunchAtLoginToggle.IsOn = s.LaunchAtLogin;
+        SettingsAnimationsToggle.IsOn = s.AnimationsEnabled;
+        SettingsSoundToggle.IsOn = s.SoundFeedbackEnabled;
+        SettingsHapticsToggle.IsOn = s.HapticFeedbackEnabled;
+        SettingsCloseToTrayToggle.IsOn = s.CloseToTray;
+        SettingsStartHeadlessToggle.IsOn = s.StartMinimizedHeadless;
+        SettingsLaunchToggle.IsOn = s.LaunchAtLogin;
+        LaunchAtLoginToggle.IsOn = s.LaunchAtLogin;
         _isSyncingSettings = false;
     }
 
     private void BackgroundToggles_Changed(object sender, RoutedEventArgs e)
     {
         if (_isSyncingSettings) return;
-        if (SettingsAnimationsToggle == null || SettingsSoundToggle == null ||
-            SettingsHapticsToggle == null || SettingsCloseToTrayToggle == null ||
-            SettingsStartHeadlessToggle == null || SettingsLaunchToggle == null) return;
 
         var s = BackgroundSettingsService.Current;
         s.AnimationsEnabled = SettingsAnimationsToggle.IsOn;
@@ -130,10 +132,9 @@ public sealed partial class MainPage : Page
         var cardFillBrush = new SolidColorBrush(palette.SurfaceCardFill);
         var cardStrokeBrush = new SolidColorBrush(palette.SurfaceStroke);
 
-        TopTitleBarGrid.BorderBrush = cardStrokeBrush;
         BrandAccentDot.Fill = accentBrush;
         BrandTitleText.Foreground = textPrimaryBrush;
-        BrandPillBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(35, palette.Accent.R, palette.Accent.G, palette.Accent.B));
+        BrandPillBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, palette.Accent.R, palette.Accent.G, palette.Accent.B));
         BrandPillBorder.BorderBrush = cardStrokeBrush;
         BrandPillText.Foreground = accentBrush;
         BrandPillText.Text = ThemeService.CurrentBackdrop == BackdropPreference.MicaAlt
@@ -143,7 +144,8 @@ public sealed partial class MainPage : Page
         MainWheelOuterEllipse.Fill = new SolidColorBrush(palette.WheelRingFill);
         MainWheelOuterEllipse.Stroke = cardStrokeBrush;
         MainWheelCenterBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
-        MainWheelCenterBorder.BorderBrush = cardStrokeBrush;
+        MainWheelCenterBorder.BorderBrush = accentBrush;
+        CenterCategoryBadge.Foreground = accentBrush;
         CenterSizeText.Foreground = textPrimaryBrush;
         CenterCountText.Foreground = textSecondaryBrush;
 
@@ -156,7 +158,7 @@ public sealed partial class MainPage : Page
         Step2LabelText.Foreground = textPrimaryBrush;
 
         KeycapBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
-        KeycapBorder.BorderBrush = cardStrokeBrush;
+        KeycapBorder.BorderBrush = accentBrush;
         KeycapSymbolText.Foreground = accentBrush;
         KeycapLabelText.Foreground = textPrimaryBrush;
         KeycapHintText.Foreground = textSecondaryBrush;
@@ -167,25 +169,28 @@ public sealed partial class MainPage : Page
         HoveredSectorDescriptionText.Foreground = accentBrush;
 
         BottomStatusBarBorder.Background = cardFillBrush;
-        BottomStatusBarBorder.BorderBrush = cardStrokeBrush;
         StatusText.Foreground = textSecondaryBrush;
         OutputModeBadge.Foreground = accentBrush;
 
-        OnboardingCardBorder.Background = cardFillBrush;
-        OnboardingCardBorder.BorderBrush = cardStrokeBrush;
-        OnboardingStepTag.Foreground = accentBrush;
-        OnboardingStepTitle.Foreground = textPrimaryBrush;
-        OnboardingStepBody.Foreground = textSecondaryBrush;
-        OnboardingNextBtn.Background = accentBrush;
-        OnboardingNextBtn.Foreground = textOnAccentBrush;
-        OnboardingBackBtn.Background = cardFillBrush;
-        OnboardingBackBtn.Foreground = textPrimaryBrush;
-        OnboardingBackBtn.BorderBrush = cardStrokeBrush;
-        OnboardingFolderBtn.Background = cardFillBrush;
-        OnboardingFolderBtn.Foreground = textPrimaryBrush;
-        OnboardingFolderBtn.BorderBrush = cardStrokeBrush;
+        var onboardingGradient = new LinearGradientBrush
+        {
+            StartPoint = new Point(0, 0),
+            EndPoint = new Point(1, 1)
+        };
+        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.AccentDark1, Offset = 0.0 });
+        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.Accent, Offset = 0.55 });
+        onboardingGradient.GradientStops.Add(new GradientStop { Color = palette.AccentLight2, Offset = 1.0 });
 
-        SettingsCardBorder.Background = cardFillBrush;
+        OnboardingCardBorder.Background = onboardingGradient;
+        OnboardingCardBorder.BorderBrush = new SolidColorBrush(palette.AccentLight2);
+        OnboardingStepTag.Foreground = textOnAccentBrush;
+        OnboardingStepTitle.Foreground = textOnAccentBrush;
+        OnboardingStepBody.Foreground = textOnAccentBrush;
+
+        OnboardingNextBtn.Background = new SolidColorBrush(palette.WheelCenterFill);
+        OnboardingNextBtn.Foreground = textPrimaryBrush;
+
+        SettingsCardBorder.Background = new SolidColorBrush(palette.WheelCenterFill);
         SettingsCardBorder.BorderBrush = cardStrokeBrush;
         SettingsHeaderTitle.Foreground = textPrimaryBrush;
         SettingsAppearanceLabel.Foreground = accentBrush;
@@ -205,22 +210,17 @@ public sealed partial class MainPage : Page
     {
         var activeBg = new SolidColorBrush(palette.Accent);
         var activeFg = new SolidColorBrush(palette.TextOnAccent);
-        var activeBorder = new SolidColorBrush(palette.AccentLight1);
         var inactiveBg = new SolidColorBrush(palette.SurfaceCardFill);
         var inactiveFg = new SolidColorBrush(palette.TextPrimary);
-        var inactiveBorder = new SolidColorBrush(palette.SurfaceStroke);
 
         ConverterTabBtn.Background = _currentMode == WheelMode.Converter ? activeBg : inactiveBg;
         ConverterTabBtn.Foreground = _currentMode == WheelMode.Converter ? activeFg : inactiveFg;
-        ConverterTabBtn.BorderBrush = _currentMode == WheelMode.Converter ? activeBorder : inactiveBorder;
 
         ToolsTabBtn.Background = _currentMode == WheelMode.Tools ? activeBg : inactiveBg;
         ToolsTabBtn.Foreground = _currentMode == WheelMode.Tools ? activeFg : inactiveFg;
-        ToolsTabBtn.BorderBrush = _currentMode == WheelMode.Tools ? activeBorder : inactiveBorder;
 
         ActionsTabBtn.Background = _currentMode == WheelMode.Actions ? activeBg : inactiveBg;
         ActionsTabBtn.Foreground = _currentMode == WheelMode.Actions ? activeFg : inactiveFg;
-        ActionsTabBtn.BorderBrush = _currentMode == WheelMode.Actions ? activeBorder : inactiveBorder;
     }
 
     private void SwitchMode(WheelMode mode, bool animateAndSound = true)
@@ -229,28 +229,34 @@ public sealed partial class MainPage : Page
         _currentSectors = FileProcessorService.GetSectorsForMode(mode, _loadedFiles);
         _selectedSectorIndex = _currentSectors.Count > 0 ? 0 : -1;
 
+        string categoryBadge = FileProcessorService.DetectCategoryBadge(_loadedFiles);
+        CenterCategoryBadge.Text = mode switch
+        {
+            WheelMode.Converter => categoryBadge,
+            WheelMode.Tools => "FILE TOOLS",
+            WheelMode.Actions => "FILE ACTIONS",
+            _ => "LEMONAID"
+        };
+
         switch (mode)
         {
             case WheelMode.Converter:
-                ModeTitleText.Text = "File Converter";
-                ModeSubtitleText.Text = "Select an output format wedge on the wheel. Results are saved next to the originals.";
+                ModeTitleText.Text = _loadedFiles.Count > 0 ? $"File Converter · {categoryBadge}" : "File Converter";
+                ModeSubtitleText.Text = "Contextual conversion formats tailored to your selected file type. Results are saved beside originals.";
                 KeycapSymbolText.Text = "⇧";
                 KeycapLabelText.Text = "shift";
-                KeycapHintText.Text = "or hold Left-Click on files in Explorer + tap Shift";
                 break;
             case WheelMode.Tools:
                 ModeTitleText.Text = "File Tools";
                 ModeSubtitleText.Text = "Run non-destructive editing, compression, metadata cleanup, cropping, or redaction.";
                 KeycapSymbolText.Text = "⎇";
                 KeycapLabelText.Text = "alt";
-                KeycapHintText.Text = "or hold Left-Click on files in Explorer + tap Alt";
                 break;
             case WheelMode.Actions:
                 ModeTitleText.Text = "File Actions";
                 ModeSubtitleText.Text = "Route files to Nearby Share, Float preview, Clipboard, Move, Copy Path, or Terminal.";
                 KeycapSymbolText.Text = "⌃";
                 KeycapLabelText.Text = "ctrl";
-                KeycapHintText.Text = "or hold Left-Click on files in Explorer + tap Ctrl";
                 break;
         }
 
@@ -309,7 +315,7 @@ public sealed partial class MainPage : Page
         const double cx = 190.0;
         const double cy = 190.0;
         const double innerRadius = 66.0;
-        const double outerRadius = 172.0;
+        const double outerRadius = 164.0;
         const double gapDegrees = 4.0;
 
         double sweepPerSector = 360.0 / count;
@@ -346,11 +352,11 @@ public sealed partial class MainPage : Page
             double labelX = cx + midRadius * Math.Cos(midAngleRad);
             double labelY = cy + midRadius * Math.Sin(midAngleRad);
 
-            var labelTransform = new CompositeTransform { CenterX = 40, CenterY = 18 };
+            var labelTransform = new CompositeTransform { CenterX = 42, CenterY = 20 };
             var labelStack = new StackPanel
             {
-                Spacing = 2,
-                Width = 80,
+                Spacing = 3,
+                Width = 84,
                 IsHitTestVisible = false,
                 RenderTransform = labelTransform
             };
@@ -376,8 +382,8 @@ public sealed partial class MainPage : Page
             labelStack.Children.Add(icon);
             labelStack.Children.Add(label);
 
-            Canvas.SetLeft(labelStack, labelX - 40);
-            Canvas.SetTop(labelStack, labelY - 18);
+            Canvas.SetLeft(labelStack, labelX - 42);
+            Canvas.SetTop(labelStack, labelY - 20);
             WheelCanvas.Children.Add(labelStack);
 
             var node = new WedgeVisualNode
@@ -442,6 +448,7 @@ public sealed partial class MainPage : Page
         return new Microsoft.UI.Xaml.Shapes.Path
         {
             Data = geo,
+            UseSystemFocusVisuals = false,
             Fill = new SolidColorBrush(isHighlighted ? palette.Accent : palette.WedgeFill),
             Stroke = new SolidColorBrush(isHighlighted ? palette.AccentLight2 : palette.WedgeStroke),
             StrokeThickness = 1.5
@@ -467,15 +474,15 @@ public sealed partial class MainPage : Page
     {
         e.AcceptedOperation = DataPackageOperation.Copy;
 
-        if (e.Modifiers.HasFlag(Windows.ApplicationModel.DataTransfer.DragDrop.DragDropModifiers.Shift))
+        if (e.Modifiers.HasFlag(DragDropModifiers.Shift))
         {
             if (_currentMode != WheelMode.Converter) SwitchMode(WheelMode.Converter);
         }
-        else if (e.Modifiers.HasFlag(Windows.ApplicationModel.DataTransfer.DragDrop.DragDropModifiers.Alt))
+        else if (e.Modifiers.HasFlag(DragDropModifiers.Alt))
         {
             if (_currentMode != WheelMode.Tools) SwitchMode(WheelMode.Tools);
         }
-        else if (e.Modifiers.HasFlag(Windows.ApplicationModel.DataTransfer.DragDrop.DragDropModifiers.Control))
+        else if (e.Modifiers.HasFlag(DragDropModifiers.Control))
         {
             if (_currentMode != WheelMode.Actions) SwitchMode(WheelMode.Actions);
         }
@@ -540,12 +547,13 @@ public sealed partial class MainPage : Page
 
         if (_loadedFiles.Count == 0)
         {
-            SelectedFilesSummaryText.Text = "No files loaded yet — drop any file onto the window or click 'Load Sample Image'.";
+            SelectedFilesSummaryText.Text = "No files loaded yet — drop any image, document, video, audio, or archive onto the wheel.";
             return;
         }
 
+        string category = FileProcessorService.DetectCategoryBadge(_loadedFiles);
         string names = string.Join(", ", _loadedFiles.Select(p => System.IO.Path.GetFileName(p.TrimEnd(System.IO.Path.DirectorySeparatorChar))));
-        SelectedFilesSummaryText.Text = $"Loaded ({_loadedFiles.Count}): {names}";
+        SelectedFilesSummaryText.Text = $"[{category}] Loaded ({_loadedFiles.Count}): {names}";
     }
 
     private async void Page_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -590,7 +598,7 @@ public sealed partial class MainPage : Page
             case VirtualKey.Escape:
                 _loadedFiles.Clear();
                 UpdateLoadedFilesSummary();
-                RebuildRadialWheelVisuals();
+                SwitchMode(_currentMode, animateAndSound: false);
                 FeedbackService.Play(FeedbackCue.Dismiss);
                 StatusText.Text = "Cleared active file selection.";
                 break;
@@ -604,13 +612,7 @@ public sealed partial class MainPage : Page
     private void PinToggleBtn_Changed(object sender, RoutedEventArgs e)
     {
         FeedbackService.Play(FeedbackCue.WedgeTick);
-        bool isPinned = PinToggleBtn.IsChecked == true;
-        PinToggleBtn.Content = isPinned ? "📌 Pinned" : "📌 Pin";
-        var palette = ThemeService.GetCurrentPalette();
-        PinToggleBtn.Foreground = isPinned
-            ? new SolidColorBrush(palette.Accent)
-            : new SolidColorBrush(palette.TextPrimary);
-        MainWindow.CurrentInstance?.SetAlwaysOnTop(isPinned);
+        MainWindow.CurrentInstance?.SetAlwaysOnTop(PinToggleBtn.IsChecked == true);
     }
 
     private async void BrowseFiles_Click(object sender, RoutedEventArgs e)
@@ -631,7 +633,7 @@ public sealed partial class MainPage : Page
             UpdateLoadedFilesSummary();
             SwitchMode(_currentMode, animateAndSound: false);
             FeedbackService.Play(FeedbackCue.WheelSummon);
-            StatusText.Text = $"Loaded {_loadedFiles.Count} file(s). Click a radial wedge or press Enter.";
+            StatusText.Text = $"Loaded {_loadedFiles.Count} file(s). Contextual conversion sectors updated.";
         }
     }
 
@@ -673,7 +675,7 @@ public sealed partial class MainPage : Page
         UpdateLoadedFilesSummary();
         SwitchMode(_currentMode, animateAndSound: false);
         FeedbackService.Play(FeedbackCue.WheelSummon);
-        StatusText.Text = $"Created & loaded dynamic-accent sample image at {samplePath}";
+        StatusText.Text = $"Created & loaded sample PNG → Wheel now shows JPG, TIF, WEBP, HEIC, AVIF, PDF, BMP";
     }
 
     private void UpdateOnboardingUI()
@@ -687,14 +689,14 @@ public sealed partial class MainPage : Page
         switch (_onboardingStep)
         {
             case 0:
-                OnboardingStepTag.Text = "Step 1 of 6 · Welcome";
+                OnboardingStepTag.Text = "Welcome to";
                 OnboardingStepTitle.Text = "LemonAID";
                 OnboardingStepBody.Text = "Contextual radial wheels with Windows Mica Alt, spring animations, and tactile sound/haptic feedback.";
                 break;
             case 1:
                 OnboardingStepTag.Text = "Step 2 of 6 · Shift Key Cue";
                 OnboardingStepTitle.Text = "File Converter";
-                OnboardingStepBody.Text = "1. Drag or Hold Left-Click on a file   2. Tap [Shift] — Convert to PDF, PNG, WEBP, HEIC, TIFF, AVIF or document formats.";
+                OnboardingStepBody.Text = "1. Drag or Hold Left-Click on a file   2. Tap [Shift] — Contextual formats for Images, Documents, PDFs, Videos, Audio, Spreadsheets & Archives.";
                 break;
             case 2:
                 OnboardingStepTag.Text = "Step 3 of 6 · Alt Key Cue";
@@ -773,6 +775,7 @@ public sealed partial class MainPage : Page
 
     private void OpenOnboarding_Click(object sender, RoutedEventArgs e)
     {
+        SettingsOverlay.Visibility = Visibility.Collapsed;
         _onboardingStep = 0;
         FeedbackService.Play(FeedbackCue.WheelSummon);
         UpdateOnboardingUI();
