@@ -26,10 +26,57 @@ public enum WheelMode
     Actions    // Ctrl
 }
 
+public enum FileCategory
+{
+    Directory,
+    Image,
+    Audio,
+    Video,
+    DataCode,
+    Subtitle,
+    Archive,
+    Document,
+    BinaryGeneric
+}
+
 public sealed record SectorItem(string Id, string Label, string Glyph, string Description);
 
 public static class FileProcessorService
 {
+    public static FileCategory DetectCategory(string path)
+    {
+        if (Directory.Exists(path)) return FileCategory.Directory;
+
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".png" or ".jpg" or ".jpeg" or ".bmp" or ".tiff" or ".tif" or ".gif" or ".webp" or ".heic" or ".ico" or ".svg"
+                => FileCategory.Image,
+
+            ".mp3" or ".wav" or ".wma" or ".m4a" or ".aac" or ".flac" or ".ogg" or ".aiff" or ".opus" or ".mid" or ".midi"
+                => FileCategory.Audio,
+
+            ".mp4" or ".mov" or ".wmv" or ".avi" or ".mkv" or ".webm" or ".flv" or ".m4v" or ".3gp"
+                => FileCategory.Video,
+
+            ".srt" or ".vtt"
+                => FileCategory.Subtitle,
+
+            ".json" or ".csv" or ".tsv" or ".xml" or ".html" or ".htm" or ".css" or ".js" or ".ts" or ".jsx" or ".tsx"
+                or ".cs" or ".py" or ".cpp" or ".c" or ".h" or ".hpp" or ".java" or ".rs" or ".go" or ".sql"
+                or ".yaml" or ".yml" or ".md" or ".txt" or ".ini" or ".env" or ".log" or ".sh" or ".ps1" or ".bat"
+                or ".cmd" or ".toml" or ".jsonc" or ".cfg" or ".config"
+                => FileCategory.DataCode,
+
+            ".zip" or ".tar" or ".gz" or ".7z" or ".rar" or ".bz2" or ".xz" or ".cab" or ".iso"
+                => FileCategory.Archive,
+
+            ".pdf" or ".docx" or ".xlsx" or ".pptx" or ".doc" or ".xls" or ".ppt" or ".rtf" or ".odt" or ".ods" or ".odp" or ".epub"
+                => FileCategory.Document,
+
+            _ => FileCategory.BinaryGeneric
+        };
+    }
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".heic", ".heif", ".avif", ".bmp", ".gif", ".ico", ".svg"
@@ -745,10 +792,13 @@ public static class FileProcessorService
 
             if (profile != null)
             {
-                using var outStream = new FileStream(outputPath, FileMode.Create, FileAccess.ReadWrite);
-                using var ras = outStream.AsRandomAccessStream();
+                string outDir = Path.GetDirectoryName(outputPath) ?? Environment.CurrentDirectory;
+                string outFileName = Path.GetFileName(outputPath);
+                StorageFolder destFolder = await StorageFolder.GetFolderFromPathAsync(outDir);
+                StorageFile destFile = await destFolder.CreateFileAsync(outFileName, CreationCollisionOption.ReplaceExisting);
+
                 var transcoder = new MediaTranscoder();
-                var prep = await transcoder.PrepareFileTranscodeAsync(srcFile, ras, profile);
+                var prep = await transcoder.PrepareFileTranscodeAsync(srcFile, destFile, profile);
                 if (prep.CanTranscode)
                 {
                     await prep.TranscodeAsync();
