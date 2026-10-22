@@ -61,3 +61,6 @@ BundleArtifacts/
 *.cer
 *.user
 .vs/
+
+# Development certificate
+devcert.pfx
